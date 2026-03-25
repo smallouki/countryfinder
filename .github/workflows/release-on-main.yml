@@ -1,0 +1,41 @@
+name: Release extension ZIP on main
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read manifest metadata
+        id: meta
+        run: |
+          echo "version=$(jq -r .version manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "ext_name=$(jq -r .name manifest.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Build ZIP (Chrome load-unpacked layout)
+        id: pack
+        run: |
+          ZIP="show-country-${{ steps.meta.outputs.version }}-${{ github.run_number }}.zip"
+          zip -r "$ZIP" manifest.json service_worker.js resolve_core.js content icons LICENSE README.md
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.meta.outputs.version }}-build.${{ github.run_number }}
+          name: ${{ steps.meta.outputs.ext_name }} ${{ steps.meta.outputs.version }} (build ${{ github.run_number }})
+          body: |
+            Chromium extension bundle for **Load unpacked**: download the `.zip`, extract it, then in Chrome open `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select the **extracted folder** (the directory that contains `manifest.json`).
+
+            - Commit: `${{ github.sha }}`
+          files: ${{ steps.pack.outputs.zip }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
