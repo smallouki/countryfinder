@@ -44,7 +44,6 @@ Geolocation (examples): reallyfreegeoip.org, ipinfo.io, ipwho.is, ipapi.co, geoj
 
 Flags: flagcdn.com.
 
-Distributors must comply with each provider’s **terms of use**, **rate limits**, and **privacy policies**. Services may change, block, or rate-limit traffic without notice. A self-hosted backend or fewer providers may be needed for stricter control.
 
 ## Legal notices & limitations (important)
 
@@ -57,8 +56,6 @@ This section is **general information** only and **not legal advice**.
 5. **Icon.** The product icon uses a **stylized, simplified map silhouette** for recognition only; it is **not** an authoritative geographic or cartographic product.
 6. **Liability.** To the extent permitted by law, the authors and contributors disclaim liability for damages arising from use of this software.
 
-Chrome Web Store publication requires accurate disclosures (e.g. **privacy practices**, **single purpose**, **permission justification**). A **privacy policy** should describe the shipped build accurately and be hosted at a stable URL.
-
 ## Development
 
 Regenerate PNG icons (requires [Pillow](https://pypi.org/project/pillow/)):
@@ -69,4 +66,4 @@ python3 scripts/generate_icons.py
 
 ## License
 
-Adding a `LICENSE` file (e.g. MIT) clarifies redistribution terms. Without an explicit license, default copyright applies.
+[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0) (`PolyForm-Noncommercial-1.0.0`). See `LICENSE`. Commercial use is not permitted; the license text also allows specific nonprofit, educational, and government uses.
