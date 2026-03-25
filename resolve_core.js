@@ -1,7 +1,4 @@
-/**
- * Shared hostname → IP (DoH) and IP → country. Loaded only in the service worker
- * so requests are not tied to the tab (avoids many ad blockers / page filters).
- */
+/** Hostname → IP (DoH) and IP → country; service worker only. */
 
 (function () {
   const DOH_GOOGLE = "https://dns.google/resolve";

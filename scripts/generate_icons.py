@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate extension icons: stylized Africa (+ tiny Madagascar) on ocean blue."""
+"""Generate extension PNG icons (16 / 48 / 128)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-# Normalized coords (0–1), north = small y. Stylized Africa: wide north, Gulf bulge west, Horn east, taper south.
+# Normalized (0–1), y = north. Stylized continent silhouette + island.
 AFRICA_DETAIL = [
     (0.40, 0.12),
     (0.48, 0.08),
@@ -30,7 +30,7 @@ AFRICA_DETAIL = [
     (0.36, 0.11),
 ]
 
-# Fewer vertices for 16–22 px: keep Horn + wide top + narrow south
+# Reduced vertices for n <= 22
 AFRICA_MINI = [
     (0.40, 0.14),
     (0.52, 0.08),
@@ -43,7 +43,7 @@ AFRICA_MINI = [
     (0.34, 0.16),
 ]
 
-# Island east of mainland
+# Secondary landmass (eastern)
 MADAGASCAR = [
     (0.715, 0.50),
     (0.755, 0.48),

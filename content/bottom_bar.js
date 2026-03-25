@@ -13,7 +13,6 @@
       "</circle></svg>"
   );
 
-  /** Haus: breites Dach‑Dreieck + Kasten, Schornstein, 1 Fenster, Tür rechts (kein Gesicht) */
   const LOCAL_SVG = svgDataUrl(
     '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="20" viewBox="0 0 28 20">' +
       "<defs>" +
@@ -31,7 +30,6 @@
       "</svg>"
   );
 
-  /** Großes „?“ auf butter‑/honig‑Pastell (kein Lila) */
   const UNKNOWN_SVG = svgDataUrl(
     '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="20" viewBox="0 0 28 20">' +
       "<defs>" +
@@ -121,7 +119,6 @@
     return document.body || document.documentElement;
   }
 
-  /** Back-compat if cached payload has no iconType */
   function inferIconType(meta) {
     if (meta.iconType === "flag" || meta.iconType === "local" || meta.iconType === "unknown") {
       return meta.iconType;
@@ -262,7 +259,5 @@
     } else {
       mount();
     }
-  } catch (e) {
-    console.error("[Show Country] mount failed", e);
-  }
+  } catch {}
 })();

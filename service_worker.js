@@ -1,7 +1,3 @@
-/**
- * Caching wrapper around shared resolve logic (resolve_core.js).
- */
-
 importScripts("resolve_core.js");
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
@@ -11,11 +7,6 @@ const cache = new Map();
 /** @typedef {{ ok: true, ip: string, country: string, countryCode: string, flagUrl: string, iconType: 'flag'|'local'|'unknown' }} ServerMetaOk */
 /** @typedef {{ ok: false, error: string }} ServerMetaErr */
 
-/**
- * @param {string} hostname
- * @param {string} [protocol]
- * @returns {Promise<ServerMetaOk | ServerMetaErr>}
- */
 async function resolveServerMeta(hostname, protocol) {
   const hostRaw = (hostname || "").trim();
   const host = hostRaw.toLowerCase();
