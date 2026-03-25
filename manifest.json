@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Show Country",
+  "version": "1.0.0",
+  "description": "Resolves the page host to an IP, shows country via geolocation, and displays a bottom flag overlay (IP and country on hover).",
+  "background": {
+    "service_worker": "service_worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/bottom_bar.js"],
+      "run_at": "document_end",
+      "all_frames": false
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "host_permissions": [
+    "https://dns.google/*",
+    "https://dns.quad9.net/*",
+    "https://doh.opendns.com/*",
+    "https://dns.adguard-dns.com/*",
+    "https://cloudflare-dns.com/*",
+    "https://1.1.1.1/*",
+    "https://reallyfreegeoip.org/*",
+    "https://ipinfo.io/*",
+    "https://ipwho.is/*",
+    "https://ipapi.co/*",
+    "https://get.geojs.io/*",
+    "http://ip-api.com/*",
+    "https://flagcdn.com/*"
+  ]
+}
