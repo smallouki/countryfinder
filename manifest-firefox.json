@@ -1,0 +1,44 @@
+{
+  "manifest_version": 2,
+  "name": "Show Country",
+  "version": "1.0.0",
+  "description": "Resolves the page host to an IP, shows country via geolocation, and displays a bottom flag overlay (IP and country on hover).",
+  "browser_action": {
+    "default_popup": "popup.html" 
+    // Note: Since this is a service worker/background script driven extension, I'm treating "browser_action" as a generic entry point/compatibility placeholder for now.
+  },
+  "background": {
+    "scripts": ["service_worker.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/bottom_bar.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "https://dns.google/*",
+    "https://dns.quad9.net/*",
+    "https://doh.opendns.com/*",
+    "https://dns.adguard-dns.com/*",
+    "https://cloudflare-dns.com/*",
+    "https://1.1.1.1/*",
+    "https://reallyfreegeoip.org/*",
+    "https://ipinfo.io/*",
+    "https://ipwho.is/*",
+    "https://ipapi.co/*",
+    "https://get.geojs.io/*",
+    "http://ip-api.com/*",
+    "https://flagcdn.com/*"
+  ]
+}
