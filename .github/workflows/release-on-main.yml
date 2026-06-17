@@ -48,6 +48,45 @@ jobs:
           (cd pack-firefox && zip -r "../$ZIP" .)
           echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Sign Firefox add-on (Mozilla AMO, unlisted)
+        id: sign-firefox
+        env:
+          AMO_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -z "${AMO_ISSUER:-}" ] || [ -z "${AMO_SECRET:-}" ]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "AMO credentials not configured; skipping signing. Add secrets AMO_JWT_ISSUER and AMO_JWT_SECRET (see docs/MOZILLA_SIGNING.md)."
+            exit 0
+          fi
+          npm ci
+          npx web-ext sign \
+            -s pack-firefox \
+            -a amo-artifacts \
+            --api-key "$AMO_ISSUER" \
+            --api-secret "$AMO_SECRET" \
+            --channel unlisted \
+            --timeout 120000 \
+            --approval-timeout 600000
+          XPI=$(find amo-artifacts -maxdepth 1 -type f -name '*.xpi' | head -1)
+          if [ -z "$XPI" ]; then
+            echo "Signing finished but no .xpi found in amo-artifacts"
+            ls -la amo-artifacts
+            exit 1
+          fi
+          VER="${{ steps.meta.outputs.version_firefox }}"
+          RUN="${{ github.run_number }}"
+          OUT="show-country-firefox-signed-${VER}-${RUN}.xpi"
+          cp "$XPI" "$OUT"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+          echo "xpi=$OUT" >> "$GITHUB_OUTPUT"
+          echo "Built $OUT"
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -58,7 +97,9 @@ jobs:
 
             **Chrome:** download `show-country-chrome-…zip`, extract, open `chrome://extensions` → Developer mode → **Load unpacked** → select the folder that contains `manifest.json`.
 
-            **Firefox (121+):** download `show-country-firefox-…zip`, **extract** the ZIP (do not use “Install add-on from file” on the ZIP — unsigned packages will fail). Open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → select **`manifest.json`** inside the extracted folder. Firefox MV3 uses `background.scripts` in that manifest; Chrome builds use `service_worker` only.
+            **Firefox (121+), unsigned:** download `show-country-firefox-…zip`, **extract** the ZIP (do not use “Install add-on from file” on the unsigned ZIP). Open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → select **`manifest.json`** inside the extracted folder.
+
+            **Firefox / LibreWolf, signed:** if this repo has [AMO signing](https://github.com/${{ github.repository }}/blob/main/docs/MOZILLA_SIGNING.md) configured, a **`show-country-firefox-signed-…xpi`** is also attached. Use **Add-ons → Install Add-on From File** and choose that `.xpi` for a normal permanent install.
 
           files: |
             ${{ steps.pack-chrome.outputs.zip }}
@@ -66,3 +107,13 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attach signed Firefox XPI to release
+        if: steps.sign-firefox.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "v${{ steps.meta.outputs.version_chrome }}-build.${{ github.run_number }}" \
+            "${{ steps.sign-firefox.outputs.xpi }}" \
+            --repo "${{ github.repository }}" \
+            --clobber

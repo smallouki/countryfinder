@@ -37,10 +37,11 @@ After code changes: use **Reload** on `about:debugging`, then refresh the tab.
 
 ## GitHub Releases (CI)
 
-On each push to **`main`**, [`.github/workflows/release-on-main.yml`](.github/workflows/release-on-main.yml) publishes a release with **two ZIPs**:
+On each push to **`main`**, [`.github/workflows/release-on-main.yml`](.github/workflows/release-on-main.yml) publishes a release with **two ZIPs**, and optionally a **signed Firefox `.xpi`**:
 
 - **`show-country-chrome-{version}-{run}.zip`** — contains Chrome `manifest.json` and extension files; load unpacked in Chrome.
 - **`show-country-firefox-{version}-{run}.zip`** — ships **`manifest.json`** copied from `manifest-firefox.json` so Firefox can load the folder without manual renaming. **Unpack the ZIP**, then use **Load Temporary Add-on…** and choose that **`manifest.json`** (see Firefox section above). This is **not** a signed XPI for permanent “Install from file” on release Firefox.
+- **`show-country-firefox-signed-{version}-{run}.xpi`** (when configured) — Mozilla‑signed **unlisted** add-on for **Add-ons → Install Add-on From File** in Firefox, **LibreWolf**, etc. Requires repository secrets `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`; see **[docs/MOZILLA_SIGNING.md](docs/MOZILLA_SIGNING.md)** for one-time setup.
 
 Release tags use **`v{version}-build.{run_number}`** so repeated pushes do not collide on the same semantic version.
 
@@ -51,6 +52,14 @@ Release tags use **`v{version}-build.{run_number}`** so repeated pushes do not c
 | **“Corrupt”** when using **Install Add-on From File** on the `.zip` | Normal **release** Firefox requires **AMO-signed** packages for that entry point. Use **temporary add-on** (above), **Developer Edition** with signing disabled for local use, or [sign the XPI](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/). |
 | **Cannot select the folder** in **Load Temporary Add-on** | The picker wants a **file** — choose **`manifest.json`** inside the extracted folder. |
 | **“Corrupt”** even for temporary load (older builds) | Firefox MV3 does **not** use Chrome’s `background.service_worker` alone; this repo’s Firefox manifest uses **`background.scripts`** so the add-on validates. Use the latest **`show-country-firefox-…zip`**. |
+| **“Has not been verified”** (unsigned add-on) | You are using **Add-ons → Install Add-on From File** (or similar) with an **unsigned** package. That path requires a **Mozilla-signed** `.xpi`. Use **`about:debugging` → Load Temporary Add-on… → `manifest.json`**, download the **`show-country-firefox-signed-…xpi`** from [Releases](https://github.com/smallouki/countryfinder/releases) after [AMO signing is configured](docs/MOZILLA_SIGNING.md), or sign yourself via AMO. |
+
+### LibreWolf (and similar Firefox forks)
+
+**LibreWolf** is built to treat add-on signing like a hardened Firefox: **`about:config` → `xpinstall.signatures.required = false` often does nothing** for “Install add-on from file”, because signing can be enforced at **build time** (`MOZ_REQUIRE_SIGNING`), not only by that preference.
+
+- **Still use** **`about:debugging#/runtime/this-firefox`** → **Load Temporary Add-on…** → select **`manifest.json`** from the **extracted** `show-country-firefox-…` folder. That path is for **development** and does **not** require a Mozilla signature (same idea as Firefox).
+- To **install permanently** from a file in LibreWolf (or normal release Firefox), download the **`show-country-firefox-signed-…xpi`** from [Releases](https://github.com/smallouki/countryfinder/releases) once [CI signing is set up](docs/MOZILLA_SIGNING.md), then **Install add-on from file**. Without that signed artifact, you need a **signed** `.xpi` from Mozilla ([self-distribution / unlisted signing](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/)), not the raw unsigned ZIP.
 
 ## Permissions
 
@@ -95,6 +104,21 @@ Regenerate PNG icons (requires [Pillow](https://pypi.org/project/pillow/)):
 
 ```bash
 python3 scripts/generate_icons.py
+```
+
+### Firefox: pack folder and AMO signing (local)
+
+```bash
+npm install
+npm run pack:firefox   # writes build/firefox-addon/ (same layout as CI)
+```
+
+Signing locally (needs `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` in the environment — see **[docs/MOZILLA_SIGNING.md](docs/MOZILLA_SIGNING.md)**):
+
+```bash
+export AMO_JWT_ISSUER='…'
+export AMO_JWT_SECRET='…'
+npm run sign:firefox
 ```
 
 ## License

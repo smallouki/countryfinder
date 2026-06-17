@@ -1,6 +1,10 @@
 .DS_Store
+node_modules/
 *.pyc
 __pycache__/
 .venv/
 venv/
 *.log
+build/
+amo-artifacts/
+web-ext-artifacts/

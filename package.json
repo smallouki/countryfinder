@@ -4,7 +4,9 @@
   "description": "Minimal Chrome extension (Manifest V3): resolves the **top-level page hostname** to an IP (via DNS-over-HTTPS), looks up **approximate country** using public IP geolocation APIs, and shows a **small flag** in the bottom-right of the page. **Country name and IP appear only on hover.**",
   "main": "resolve_core.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "pack:firefox": "bash scripts/prepare-firefox-addon-dir.sh",
+    "sign:firefox": "npm run pack:firefox && web-ext sign -s build/firefox-addon -a web-ext-artifacts --channel unlisted --api-key \"${AMO_JWT_ISSUER:?set AMO_JWT_ISSUER}\" --api-secret \"${AMO_JWT_SECRET:?set AMO_JWT_SECRET}\""
   },
   "repository": {
     "type": "git",
@@ -16,5 +18,8 @@
   "bugs": {
     "url": "https://github.com/smallouki/countryfinder/issues"
   },
-  "homepage": "https://github.com/smallouki/countryfinder#readme"
+  "homepage": "https://github.com/smallouki/countryfinder#readme",
+  "devDependencies": {
+    "web-ext": "^8.3.0"
+  }
 }
