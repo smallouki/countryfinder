@@ -1,4 +1,9 @@
 (function () {
+  const runtime =
+    typeof globalThis.browser !== "undefined" && globalThis.browser?.runtime
+      ? globalThis.browser.runtime
+      : globalThis.chrome?.runtime;
+
   function svgDataUrl(svg) {
     return "data:image/svg+xml," + encodeURIComponent(svg);
   }
@@ -130,32 +135,38 @@
   }
 
   async function loadMetaFromBackground(hostname, protocol) {
-    return new Promise((resolve) => {
-      try {
-        chrome.runtime.sendMessage(
-          {
-            type: "RESOLVE_SERVER_META",
-            hostname,
-            protocol,
-          },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              resolve({
-                ok: false,
-                error: chrome.runtime.lastError.message,
-              });
-              return;
-            }
-            resolve(response || { ok: false, error: "No response" });
-          }
-        );
-      } catch (e) {
-        resolve({
-          ok: false,
-          error: e instanceof Error ? e.message : String(e),
-        });
+    const msg = { type: "RESOLVE_SERVER_META", hostname, protocol };
+    try {
+      if (typeof globalThis.browser !== "undefined" && globalThis.browser?.runtime?.sendMessage) {
+        try {
+          const response = await globalThis.browser.runtime.sendMessage(msg);
+          return response || { ok: false, error: "No response" };
+        } catch (e) {
+          return {
+            ok: false,
+            error: e instanceof Error ? e.message : String(e),
+          };
+        }
       }
-    });
+      if (!runtime?.sendMessage) {
+        return { ok: false, error: "No extension runtime" };
+      }
+      return new Promise((resolve) => {
+        runtime.sendMessage(msg, (response) => {
+          const lastErr = globalThis.chrome?.runtime?.lastError;
+          if (lastErr?.message) {
+            resolve({ ok: false, error: lastErr.message });
+            return;
+          }
+          resolve(response || { ok: false, error: "No response" });
+        });
+      });
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
   }
 
   function mount() {

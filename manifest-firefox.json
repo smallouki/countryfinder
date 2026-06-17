@@ -1,14 +1,16 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Show Country",
   "version": "1.1.0",
   "description": "Resolves the page host to an IP, shows country via geolocation, and displays a bottom flag overlay (IP and country on hover).",
-  "browser_action": {
-    "default_popup": "popup.html" 
-    // Note: Since this is a service worker/background script driven extension, I'm treating "browser_action" as a generic entry point/compatibility placeholder for now.
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "countryfinder@smallouki.github",
+      "strict_min_version": "121.0"
+    }
   },
   "background": {
-    "scripts": ["service_worker.js"]
+    "service_worker": "service_worker.js"
   },
   "content_scripts": [
     {
@@ -22,10 +24,6 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": [
-    "storage",
-    "webRequest"
-  ],
   "host_permissions": [
     "https://dns.google/*",
     "https://dns.quad9.net/*",

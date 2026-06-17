@@ -29,8 +29,7 @@ async function resolveServerMeta(hostname, protocol) {
     return hit.payload;
   }
 
-  // Pass the API context getter to the uncached resolver function
-  const result = await self.resolveServerMetaUncached(hostname, protocol, API_API);
+  const result = await self.resolveServerMetaUncached(hostname, protocol);
   if (result.ok) {
     cache.set(cacheKey, { expires: Date.now() + CACHE_TTL_MS, payload: result });
   }

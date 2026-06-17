@@ -24,38 +24,41 @@ jobs:
       - name: Build Chrome ZIP
         id: pack-chrome
         run: |
-          ZIP="show-country-${{ steps.meta.outputs.version_chrome }}-${{ github.run_number }}.zip"
-          zip -r "$ZIP" manifest.json service_worker.js resolve_core.js content icons LICENSE README.md
+          VER="${{ steps.meta.outputs.version_chrome }}"
+          RUN="${{ github.run_number }}"
+          ZIP="show-country-chrome-${VER}-${RUN}.zip"
+          rm -rf pack-chrome
+          mkdir -p pack-chrome
+          cp manifest.json service_worker.js resolve_core.js LICENSE README.md pack-chrome/
+          cp -r content icons pack-chrome/
+          (cd pack-chrome && zip -r "../$ZIP" .)
           echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
 
       - name: Build Firefox ZIP
         id: pack-firefox
         run: |
-          ZIP="show-country-${{ steps.meta.outputs.version_firefox }}-${{ github.run_number }}.zip"
-          zip -r "$ZIP" manifest-firefox.json service_worker.js resolve_core.js content icons LICENSE README.md
+          VER="${{ steps.meta.outputs.version_firefox }}"
+          RUN="${{ github.run_number }}"
+          ZIP="show-country-firefox-${VER}-${RUN}.zip"
+          rm -rf pack-firefox
+          mkdir -p pack-firefox
+          cp manifest-firefox.json pack-firefox/manifest.json
+          cp service_worker.js resolve_core.js LICENSE README.md pack-firefox/
+          cp -r content icons pack-firefox/
+          (cd pack-firefox && zip -r "../$ZIP" .)
           echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.meta.outputs.version_chrome }}
-          # Use a comprehensive name that includes both names and the version
+          tag_name: v${{ steps.meta.outputs.version_chrome }}-build.${{ github.run_number }}
           name: ${{ steps.meta.outputs.name_chrome }} ${{ steps.meta.outputs.version_chrome }} (build ${{ github.run_number }})
           body: |
-            ### 🚀 New Release: ${{ steps.meta.outputs.name_chrome }} ${{ steps.meta.outputs.version_chrome }}
-            
-            This release includes builds optimized for both Chrome and Firefox.
-            
-            **📦 Instructions for Chrome (Manifest: manifest.json):**
-            1. Download the Chrome ZIP bundle.
-            2. Extract it.
-            3. In Chrome open `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select the **extracted folder** (the directory that contains `manifest.json`).
+            This release includes separate **Chrome** and **Firefox** (Manifest V3) ZIP bundles.
 
-            **🦊 Instructions for Firefox (Manifest: manifest-firefox.json):**
-            1. Download the Firefox ZIP bundle.
-            2. Extract it.
-            3. In Firefox, use the Add-ons Manager or a developer management console to load the extension from the **extracted folder** (the directory that contains `manifest-firefox.json`).
+            **Chrome:** download `show-country-chrome-…zip`, extract, open `chrome://extensions` → Developer mode → **Load unpacked** → select the folder that contains `manifest.json`.
 
+            **Firefox (121+):** download `show-country-firefox-…zip`, extract, open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on** → pick `manifest.json` inside the extracted folder (this build ships the Firefox manifest as `manifest.json`).
 
           files: |
             ${{ steps.pack-chrome.outputs.zip }}
