@@ -58,7 +58,7 @@ jobs:
 
             **Chrome:** download `show-country-chrome-…zip`, extract, open `chrome://extensions` → Developer mode → **Load unpacked** → select the folder that contains `manifest.json`.
 
-            **Firefox (121+):** download `show-country-firefox-…zip`, extract, open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on** → pick `manifest.json` inside the extracted folder (this build ships the Firefox manifest as `manifest.json`).
+            **Firefox (121+):** download `show-country-firefox-…zip`, **extract** the ZIP (do not use “Install add-on from file” on the ZIP — unsigned packages will fail). Open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → select **`manifest.json`** inside the extracted folder. Firefox MV3 uses `background.scripts` in that manifest; Chrome builds use `service_worker` only.
 
           files: |
             ${{ steps.pack-chrome.outputs.zip }}

@@ -1,16 +1,16 @@
 // This polyfill wrapper standardizes API calls for Chrome (chrome.*) and Firefox (browser.*) webextensions.
 const getApiContext = () => {
-    // Prioritize 'browser' API if available (Firefox/WebExtension standard)
-    if (typeof self.browser !== 'undefined') return self.browser;
-    // Fallback to 'chrome' API (Chrome specific)
-    if (typeof self.chrome !== 'undefined') return self.chrome;
-    throw new Error("No supported webextension API context found (browser or chrome).");
+  if (typeof self.browser !== "undefined") return self.browser;
+  if (typeof self.chrome !== "undefined") return self.chrome;
+  throw new Error("No supported webextension API context found (browser or chrome).");
 };
 
-// Use the determined API context for all webextension calls
-const API_API = getApiContext();
+// Chrome MV3: load core in the service worker. Firefox MV3: manifest lists resolve_core.js then this file.
+if (typeof importScripts === "function") {
+  importScripts("resolve_core.js");
+}
 
-importScripts("resolve_core.js");
+const API_API = getApiContext();
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 /** @type {Map<string, { expires: number, payload: ServerMetaOk }>} */

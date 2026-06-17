@@ -10,7 +10,7 @@
     }
   },
   "background": {
-    "service_worker": "service_worker.js"
+    "scripts": ["resolve_core.js", "service_worker.js"]
   },
   "content_scripts": [
     {

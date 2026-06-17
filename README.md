@@ -7,7 +7,7 @@ Minimal **Chrome** and **Firefox** extension (Manifest V3): resolves the **top-l
 | Browser | Minimum | Manifest |
 |---------|---------|----------|
 | **Chrome** / Chromium | Current stable channel practices (MV3) | [`manifest.json`](manifest.json) |
-| **Firefox** | **121.0** (MV3 background service worker) | [`manifest-firefox.json`](manifest-firefox.json) — same capabilities; includes `browser_specific_settings.gecko` for install/signing. |
+| **Firefox** | **121.0** (MV3; background uses **`scripts`**, not `service_worker`) | [`manifest-firefox.json`](manifest-firefox.json) — same logic as Chrome; Gecko id for signing/temporary install. |
 
 The same `service_worker.js`, `resolve_core.js`, `content/`, and `icons/` are used for both; only the manifest differs.
 
@@ -19,22 +19,38 @@ The same `service_worker.js`, `resolve_core.js`, `content/`, and `icons/` are us
 2. Open `chrome://extensions` → enable **Developer mode**.
 3. **Load unpacked** → select the folder that contains **`manifest.json`** (the Chrome manifest at repo root).
 
-### Firefox
+### Firefox (local / unsigned)
 
-1. Clone or download this repository.
-2. Open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…**.
-3. Choose **`manifest.json`** in the repo root **only if** it is the Firefox build: for development from git, temporarily use the Firefox manifest by copying `manifest-firefox.json` to `manifest.json` in a separate folder with the rest of the extension files, **or** use a **release ZIP** (below), which already contains the correct `manifest.json` for Firefox.
+Firefox **does not** install unsigned extensions from **Add-ons → Install Add-on From File** the way you might expect a `.zip`: that path expects a **Mozilla-signed `.xpi`**, and an unsigned archive often fails with **“corrupt”** or verification errors even though the files are fine.
 
-After code changes: reload the extension and refresh the tab.
+For day‑to‑day testing, use a **temporary** install:
+
+1. Download **`show-country-firefox-…zip`** from [GitHub Releases](https://github.com/smallouki/countryfinder/releases) (or build the folder yourself).
+2. **Extract** the ZIP so you have a folder that contains **`manifest.json`** next to `service_worker.js`, `content/`, `icons/`, etc. (Do **not** point Firefox at the `.zip` file for this flow.)
+3. Open **`about:debugging#/runtime/this-firefox`**.
+4. Click **Load Temporary Add-on…**.
+5. In the file picker, open that folder and select **`manifest.json`** (Firefox expects a **file**, not the parent folder; if needed, set the dialog filter to **All Files**).
+
+The add-on stays loaded until you restart Firefox or remove it from the debugging page.
+
+After code changes: use **Reload** on `about:debugging`, then refresh the tab.
 
 ## GitHub Releases (CI)
 
 On each push to **`main`**, [`.github/workflows/release-on-main.yml`](.github/workflows/release-on-main.yml) publishes a release with **two ZIPs**:
 
 - **`show-country-chrome-{version}-{run}.zip`** — contains Chrome `manifest.json` and extension files; load unpacked in Chrome.
-- **`show-country-firefox-{version}-{run}.zip`** — ships **`manifest.json`** copied from `manifest-firefox.json` so Firefox can load the folder without manual renaming.
+- **`show-country-firefox-{version}-{run}.zip`** — ships **`manifest.json`** copied from `manifest-firefox.json` so Firefox can load the folder without manual renaming. **Unpack the ZIP**, then use **Load Temporary Add-on…** and choose that **`manifest.json`** (see Firefox section above). This is **not** a signed XPI for permanent “Install from file” on release Firefox.
 
 Release tags use **`v{version}-build.{run_number}`** so repeated pushes do not collide on the same semantic version.
+
+### Firefox: “corrupt” or install failures
+
+| Symptom | Cause |
+|--------|--------|
+| **“Corrupt”** when using **Install Add-on From File** on the `.zip` | Normal **release** Firefox requires **AMO-signed** packages for that entry point. Use **temporary add-on** (above), **Developer Edition** with signing disabled for local use, or [sign the XPI](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/). |
+| **Cannot select the folder** in **Load Temporary Add-on** | The picker wants a **file** — choose **`manifest.json`** inside the extracted folder. |
+| **“Corrupt”** even for temporary load (older builds) | Firefox MV3 does **not** use Chrome’s `background.service_worker` alone; this repo’s Firefox manifest uses **`background.scripts`** so the add-on validates. Use the latest **`show-country-firefox-…zip`**. |
 
 ## Permissions
 
