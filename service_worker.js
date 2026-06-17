@@ -38,7 +38,7 @@ async function resolveServerMeta(hostname, protocol) {
 
 // Use the determined API context's message listener
 const messageListener = (msg, _sender, sendResponse) => {
-  if (msg?.type !== "RESOLVE_SERVER_META") return;
+  if (msg?.type !== "RESOLVE_SERVER_META") return false;
 
   resolveServerMeta(msg.hostname, msg.protocol)
     .then(sendResponse)
@@ -52,5 +52,9 @@ const messageListener = (msg, _sender, sendResponse) => {
   return true;
 }
 
-// Register the appropriate message listener
-(API_API && API_API.onMessage) ? API_API.onMessage.addListener(messageListener) : console.warn("Failed to attach onMessage listener: API context missing.");
+// Messaging lives on runtime, not the extension root (chrome.runtime / browser.runtime).
+if (API_API?.runtime?.onMessage) {
+  API_API.runtime.onMessage.addListener(messageListener);
+} else {
+  console.warn("Failed to attach runtime.onMessage listener: API context missing.");
+}
