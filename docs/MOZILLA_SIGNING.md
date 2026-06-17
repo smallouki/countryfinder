@@ -45,8 +45,8 @@ Mozilla rejects a new upload if the **`version` in `manifest.json` matches a ver
 
 In this repo:
 
-- **Source** [`manifest-firefox.json`](manifest-firefox.json) carries the human-facing base version (e.g. `1.0.1`).
-- **CI** rewrites the copy under `pack-firefox/manifest.json` to **`{base}.{github_run_number}`** (e.g. `1.0.1.184`) before zipping and calling `web-ext sign`, so each Actions run gets a **unique** AMO version without hand-editing files every push.
+- **Source** [`manifest-firefox.json`](manifest-firefox.json) carries the human-facing base version (e.g. `1.1.1`).
+- **CI** rewrites the copy under `pack-firefox/manifest.json` to **`{base}.{github_run_number}`** (e.g. `1.1.1.184`) before zipping and calling `web-ext sign`, so each Actions run gets a **unique** AMO version without hand-editing files every push.
 
 If AMO still reports a version conflict, bump the **base** version in **both** [`manifest.json`](manifest.json) and [`manifest-firefox.json`](manifest-firefox.json) so it is **greater than any version already accepted** for this add-on (AMO may reject a “downgrade” even with a unique string).
 
