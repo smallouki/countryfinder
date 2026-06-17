@@ -39,6 +39,17 @@ After the next push to **`main`**, the release workflow will:
 
 If the secrets are **missing**, the workflow **skips** signing and only publishes the two ZIPs (same as before).
 
+### Version numbers and AMO
+
+Mozilla rejects a new upload if the **`version` in `manifest.json` matches a version you already submitted** for that add-on id.
+
+In this repo:
+
+- **Source** [`manifest-firefox.json`](manifest-firefox.json) carries the human-facing base version (e.g. `1.0.1`).
+- **CI** rewrites the copy under `pack-firefox/manifest.json` to **`{base}.{github_run_number}`** (e.g. `1.0.1.184`) before zipping and calling `web-ext sign`, so each Actions run gets a **unique** AMO version without hand-editing files every push.
+
+If AMO still reports a version conflict, bump the **base** version in **both** [`manifest.json`](manifest.json) and [`manifest-firefox.json`](manifest-firefox.json) so it is **greater than any version already accepted** for this add-on (AMO may reject a “downgrade” even with a unique string).
+
 ### 3. First submission and add-on id
 
 The Firefox manifest sets a fixed Gecko id:

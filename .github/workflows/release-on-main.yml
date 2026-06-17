@@ -37,16 +37,20 @@ jobs:
       - name: Build Firefox ZIP
         id: pack-firefox
         run: |
-          VER="${{ steps.meta.outputs.version_firefox }}"
           RUN="${{ github.run_number }}"
-          ZIP="show-country-firefox-${VER}-${RUN}.zip"
           rm -rf pack-firefox
           mkdir -p pack-firefox
           cp manifest-firefox.json pack-firefox/manifest.json
           cp service_worker.js resolve_core.js LICENSE README.md pack-firefox/
           cp -r content icons pack-firefox/
+          # AMO rejects re-uploading the same manifest version; append run id (fourth segment is allowed).
+          BASE="$(jq -r .version pack-firefox/manifest.json)"
+          FF_VER="${BASE}.${RUN}"
+          jq --arg v "$FF_VER" '.version = $v' pack-firefox/manifest.json > /tmp/mfj && mv /tmp/mfj pack-firefox/manifest.json
+          ZIP="show-country-firefox-${FF_VER}-${RUN}.zip"
           (cd pack-firefox && zip -r "../$ZIP" .)
           echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "ff_manifest_version=$FF_VER" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v4
         with:
@@ -80,7 +84,7 @@ jobs:
             ls -la amo-artifacts
             exit 1
           fi
-          VER="${{ steps.meta.outputs.version_firefox }}"
+          VER="$(jq -r .version pack-firefox/manifest.json)"
           RUN="${{ github.run_number }}"
           OUT="show-country-firefox-signed-${VER}-${RUN}.xpi"
           cp "$XPI" "$OUT"
