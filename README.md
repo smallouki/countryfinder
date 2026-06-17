@@ -121,6 +121,15 @@ export AMO_JWT_SECRET='…'
 npm run sign:firefox
 ```
 
+**CI note:** `package-lock.json` must list tarball URLs on **`https://registry.npmjs.org/`** (the public registry). If `npm install` was run behind a corporate npm mirror, regenerate the lockfile before pushing, for example:
+
+```bash
+rm -rf node_modules package-lock.json
+NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ npm install
+```
+
+Otherwise GitHub Actions can fail with `npm error code E401` when `npm ci` cannot reach that mirror.
+
 ## License
 
 [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0) (`PolyForm-Noncommercial-1.0.0`). See `LICENSE`. Commercial use is not permitted; the license text also allows specific nonprofit, educational, and government uses.

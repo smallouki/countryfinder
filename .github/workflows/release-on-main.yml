@@ -64,6 +64,7 @@ jobs:
             echo "AMO credentials not configured; skipping signing. Add secrets AMO_JWT_ISSUER and AMO_JWT_SECRET (see docs/MOZILLA_SIGNING.md)."
             exit 0
           fi
+          npm config set registry https://registry.npmjs.org/
           npm ci
           npx web-ext sign \
             -s pack-firefox \
