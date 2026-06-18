@@ -158,32 +158,6 @@
   }
 
   /**
-   * @param {string[]|undefined} addrs
-   * @returns {{ v4: string | null, v6: string | null }}
-   */
-  function pickV4V6FromDnsAddresses(addrs) {
-    let v4 = null;
-    let v6 = null;
-    if (!Array.isArray(addrs)) {
-      return { v4, v6 };
-    }
-    for (const raw of addrs) {
-      const a = String(raw || "")
-        .split("%")[0]
-        .replace(/^\[|\]$/g, "")
-        .trim();
-      if (!a) continue;
-      if (!v4 && IPV4_RE.test(a)) {
-        v4 = a;
-      }
-      if (!v6 && a.includes(":")) {
-        v6 = a.split("%")[0];
-      }
-    }
-    return { v4, v6 };
-  }
-
-  /**
    * Firefox / LibreWolf only: resolve via the browser's native resolver (your OS / network DNS),
    * not via extension-initiated DoH. `disable_trr` skips Firefox "Trusted Recursive Resolver" (DoH)
    * so lookups follow normal system DNS when the user has turned off DoH in the browser.
@@ -312,10 +286,9 @@
   }
 
   /**
-   * Homelab GET. Prefer the configured hostname in the URL so TLS SNI and the HTTP Host header match
-   * ingress / virtual-host routing (a literal IP URL cannot do that; `fetch` cannot override Host).
-   * On Firefox, if `fetch` to the hostname still fails while `browser.dns.resolve` works (split-horizon),
-   * fall back to `http://IP/…` only for **http:** bases — that fallback may break vHost-only clusters.
+   * Homelab GET using only the configured URL (`{base}/{ip}`). Never rewrites the host to a
+   * resolved IP: Kubernetes ingress and TLS need the original hostname (SNI / Host); `fetch`
+   * cannot set `Host` manually. If the request fails, callers fall back to public geo APIs.
    * @param {string} baseUrl trimmed base without trailing slash
    * @param {string} ip
    * @param {number} timeoutMs
@@ -323,50 +296,7 @@
   async function lookupGeoHomelab(baseUrl, ip, timeoutMs) {
     const base = baseUrl.replace(/\/+$/, "");
     const urlByName = `${base}/${encodeURIComponent(ip)}`;
-
-    const run = async (urlStr) => parseCustomGeoJson(await fetchHomelabJson(urlStr, timeoutMs));
-
-    let u;
-    try {
-      u = new URL(urlByName);
-    } catch {
-      return await run(urlByName);
-    }
-
-    if (isLiteralIp(u.hostname)) {
-      return await run(urlByName);
-    }
-
-    try {
-      return await run(urlByName);
-    } catch (firstErr) {
-      const dns = getFirefoxDns();
-      if (!dns || u.protocol !== "http:") {
-        throw firstErr instanceof Error ? firstErr : new Error(String(firstErr));
-      }
-      try {
-        const rec = await dns.resolve(u.hostname, ["disable_trr", "bypass_cache"]);
-        const { v4, v6 } = pickV4V6FromDnsAddresses(rec?.addresses);
-        if (v4) {
-          try {
-            return await run(`http://${v4}${u.pathname}${u.search}`);
-          } catch {
-            /* */
-          }
-        }
-        if (v6) {
-          const bare = v6.split("%")[0];
-          try {
-            return await run(`http://[${bare}]${u.pathname}${u.search}`);
-          } catch {
-            /* */
-          }
-        }
-      } catch {
-        /* dns.resolve failed */
-      }
-      throw firstErr instanceof Error ? firstErr : new Error(String(firstErr));
-    }
+    return parseCustomGeoJson(await fetchHomelabJson(urlByName, timeoutMs));
   }
 
   /**
