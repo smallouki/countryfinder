@@ -78,6 +78,7 @@
       if (normalized) {
         await ensureHostPermission(normalized);
         await runtime.storage.local.set({ [STORAGE_CUSTOM_GEO_BASE_URL]: normalized });
+        await runtime.storage.local.remove(STORAGE_HOMELAB_GEO);
         setStatus("Saved. Homelab geo will be tried first (with fallback to public APIs).", "ok");
       } else {
         await runtime.storage.local.remove([STORAGE_CUSTOM_GEO_BASE_URL, STORAGE_HOMELAB_GEO]);

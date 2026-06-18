@@ -20,6 +20,27 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 /** @type {Map<string, { expires: number, payload: ServerMetaOk }>} */
 const cache = new Map();
 
+/**
+ * Serialize host resolves so `applyHomelabBackoffFromResult` never interleaves with another
+ * in-flight resolve (parallel tabs/frames could otherwise write backoff after a success).
+ * @type {Promise<void>}
+ */
+let resolveMutexTail = Promise.resolve();
+
+/**
+ * @template T
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+function runResolveExclusive(fn) {
+  const next = resolveMutexTail.then(fn, fn);
+  resolveMutexTail = next.then(
+    () => undefined,
+    () => undefined
+  );
+  return next;
+}
+
 /** @typedef {{ ok: true, ip: string, country: string, countryCode: string, flagUrl: string, iconType: 'flag'|'local'|'unknown' }} ServerMetaOk */
 /** @typedef {{ ok: false, error: string }} ServerMetaErr */
 
@@ -55,25 +76,26 @@ async function applyHomelabBackoffFromResult(result) {
 }
 
 async function resolveServerMeta(hostname, protocol) {
-  const hostRaw = (hostname || "").trim();
-  const host = hostRaw.toLowerCase();
-  const homelabOpts = await loadHomelabOpts();
-  // Include custom geo base in the key so changing options does not reuse a stale
-  // 15-minute entry that was resolved only via public APIs before homelab was configured.
-  const homelabKeyPart = homelabOpts.customGeoBaseUrl ? `|${homelabOpts.customGeoBaseUrl}` : "";
-  const cacheKey = `${protocol || ""}|${host}${homelabKeyPart}`;
+  return runResolveExclusive(async () => {
+    const hostRaw = (hostname || "").trim();
+    const homelabOpts = await loadHomelabOpts();
+    // Include custom geo base in the key so changing options does not reuse a stale
+    // 15-minute entry that was resolved only via public APIs before homelab was configured.
+    const homelabKeyPart = homelabOpts.customGeoBaseUrl ? `|${homelabOpts.customGeoBaseUrl}` : "";
+    const cacheKey = `${protocol || ""}|${host}${homelabKeyPart}`;
 
-  const hit = cache.get(cacheKey);
-  if (hit && hit.expires > Date.now()) {
-    return hit.payload;
-  }
+    const hit = cache.get(cacheKey);
+    if (hit && hit.expires > Date.now()) {
+      return hit.payload;
+    }
 
-  const result = await self.resolveServerMetaUncached(hostname, protocol, homelabOpts);
-  await applyHomelabBackoffFromResult(result);
-  if (result.ok) {
-    cache.set(cacheKey, { expires: Date.now() + CACHE_TTL_MS, payload: result });
-  }
-  return result;
+    const result = await self.resolveServerMetaUncached(hostname, protocol, homelabOpts);
+    await applyHomelabBackoffFromResult(result);
+    if (result.ok) {
+      cache.set(cacheKey, { expires: Date.now() + CACHE_TTL_MS, payload: result });
+    }
+    return result;
+  });
 }
 
 // Use the determined API context's message listener

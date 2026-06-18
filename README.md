@@ -29,9 +29,9 @@ You can point the extension at a **small HTTP(S) service** you control (for exam
 - A thin object: `{ "country": "…", "countryCode": "DE" }` (`countryCode` must be a two-letter ISO code), or  
 - A [cloud66-oss/geo](https://github.com/cloud66-oss/geo)-style object with `country.iso_code` and optional `country.names` (e.g. `names.en`).
 
-**Behaviour:** If a base URL is saved, the service worker tries your endpoint first (short timeout). On failure (network, timeout, HTTP error, or unrecognised JSON), it falls back to the **same public geo providers** as before. After a failed homelab attempt, homelab is **skipped for about 5 minutes** (persisted in `storage`) so every page load does not wait on the homelab timeout; homelab is tried again after that window. A successful homelab response clears that backoff.
+**Behaviour:** If a base URL is saved, the service worker tries your endpoint first (short timeout). On failure (network, timeout, HTTP error, or unrecognised JSON), it falls back to the **same public geo providers** as before. After a failed homelab attempt, homelab is **skipped for about 5 minutes** (persisted in `storage`) so every page load does not wait on the homelab timeout; homelab is tried again after that window. A successful homelab response clears that backoff. Host resolves from the service worker run **one at a time** so backoff updates from parallel tabs/frames cannot overwrite a success.
 
-**Permissions:** Saving a non-empty URL triggers a **host permission** prompt for that origin (via `optional_host_permissions` patterns `http://*/*` and `https://*/*`). Clearing the field removes the stored URL and backoff state (it does not revoke already granted origins).
+**Permissions:** Saving a non-empty URL triggers a **host permission** prompt for that origin (via `optional_host_permissions` patterns `http://*/*` and `https://*/*`). Saving also **clears homelab backoff** (`homelabGeo`) so the next page loads try your endpoint again. Clearing the field removes the stored URL and backoff state (it does not revoke already granted origins).
 
 **Storage:** If you use **“Delete extension storage”** (or similar) in `about:debugging`, that wipes **`customGeoBaseUrl`** too — the extension will **not** call your homelab until you open **options** again and **save** `http://geoip.tma` (and accept the host permission prompt if shown).
 
