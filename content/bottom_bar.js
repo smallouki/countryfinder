@@ -69,7 +69,7 @@
       position: fixed;
       right: 12px;
       bottom: 12px;
-      z-index: 2147483646;
+      z-index: 2147483647;
       width: 28px;
       height: 20px;
       margin: 0;
@@ -145,8 +145,48 @@
     }
   `;
 
+  const ROOT_ID = "show-country-ext-root";
+  /** Debounce DOM churn (SPAs) before re-mounting the overlay. */
+  const REMOUNT_DEBOUNCE_MS = 350;
+
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let remountTimer;
+  /** Bumps when a new overlay mount starts so stale async resolves do not paint a removed host. */
+  let mountGen = 0;
+
+  /**
+   * Prefer `<html>` so the host survives many full-`body` replacements; `fixed` still
+   * positions against the viewport.
+   */
   function mountTarget() {
-    return document.body || document.documentElement;
+    return document.documentElement || document.body;
+  }
+
+  function scheduleRemountCheck() {
+    clearTimeout(remountTimer);
+    remountTimer = setTimeout(function () {
+      remountTimer = undefined;
+      mount();
+    }, REMOUNT_DEBOUNCE_MS);
+  }
+
+  /**
+   * Re-create the overlay if it was removed (e.g. SPA replaced `body` or app root).
+   */
+  function startOverlayKeepAlive() {
+    const root = document.documentElement;
+    if (!root || typeof MutationObserver === "undefined") return;
+    try {
+      const obs = new MutationObserver(function () {
+        const el = document.getElementById(ROOT_ID);
+        if (!el || !root.contains(el)) scheduleRemountCheck();
+      });
+      obs.observe(root, { childList: true, subtree: true });
+    } catch {
+      /* ignore */
+    }
+    window.addEventListener("popstate", scheduleRemountCheck);
+    window.addEventListener("hashchange", scheduleRemountCheck);
   }
 
   /**
@@ -237,10 +277,15 @@
   }
 
   function mount() {
-    if (document.getElementById("show-country-ext-root")) return;
+    const docEl = document.documentElement;
+    if (!docEl) return;
+    const existing = document.getElementById(ROOT_ID);
+    if (existing && docEl.contains(existing)) return;
+
+    const myGen = ++mountGen;
 
     const hostEl = document.createElement("div");
-    hostEl.id = "show-country-ext-root";
+    hostEl.id = ROOT_ID;
     hostEl.setAttribute("data-show-country", "1");
     const shadow = hostEl.attachShadow({ mode: "closed" });
     const style = document.createElement("style");
@@ -274,6 +319,8 @@
     const hostname = window.location.hostname || "";
 
     loadMetaFromBackground(hostname, protocol).then((meta) => {
+      if (myGen !== mountGen || !docEl.contains(hostEl)) return;
+
       chip.classList.remove("chip--error", "chip--map");
       chip.onclick = null;
 
@@ -362,11 +409,20 @@
       .replace(/"/g, "&quot;");
   }
 
+  function boot() {
+    try {
+      mount();
+      startOverlayKeepAlive();
+    } catch {
+      /* ignore */
+    }
+  }
+
   try {
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", mount, { once: true });
+      document.addEventListener("DOMContentLoaded", boot, { once: true });
     } else {
-      mount();
+      boot();
     }
   } catch {}
 })();
