@@ -31,6 +31,8 @@ You can point the extension at a **small HTTP(S) service** you control (for exam
 
 **Permissions:** Saving a non-empty URL triggers a **host permission** prompt for that origin (via `optional_host_permissions` patterns `http://*/*` and `https://*/*`). Clearing the field removes the stored URL and backoff state (it does not revoke already granted origins).
 
+**Troubleshooting:** If the Network tab of the **service worker** still shows only public geo hosts (e.g. reallyfreegeoip) after saving your base URL: (1) confirm the host permission was **allowed** when saving; (2) if homelab failed once, wait **~5 minutes** or clear the URL and save again to reset backoff; (3) reload the extension or revisit the page — the in-memory cache is keyed by your saved base URL and cleared when options change, so you should see `GET` to your host for **public** (non-RFC1918) resolved IPs.
+
 **Self-hosted data licensing:** If your backend uses **MaxMind GeoLite2** or similar databases, you are responsible for **license compliance** (for example GeoLite2 **CC BY-SA 4.0** attribution and redistribution rules). This repository does not ship MMDB files.
 
 ## Install from source

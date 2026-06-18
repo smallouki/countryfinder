@@ -57,14 +57,17 @@ async function applyHomelabBackoffFromResult(result) {
 async function resolveServerMeta(hostname, protocol) {
   const hostRaw = (hostname || "").trim();
   const host = hostRaw.toLowerCase();
-  const cacheKey = `${protocol || ""}|${host}`;
+  const homelabOpts = await loadHomelabOpts();
+  // Include custom geo base in the key so changing options does not reuse a stale
+  // 15-minute entry that was resolved only via public APIs before homelab was configured.
+  const homelabKeyPart = homelabOpts.customGeoBaseUrl ? `|${homelabOpts.customGeoBaseUrl}` : "";
+  const cacheKey = `${protocol || ""}|${host}${homelabKeyPart}`;
 
   const hit = cache.get(cacheKey);
   if (hit && hit.expires > Date.now()) {
     return hit.payload;
   }
 
-  const homelabOpts = await loadHomelabOpts();
   const result = await self.resolveServerMetaUncached(hostname, protocol, homelabOpts);
   await applyHomelabBackoffFromResult(result);
   if (result.ok) {
@@ -94,4 +97,15 @@ if (API_API?.runtime?.onMessage) {
   API_API.runtime.onMessage.addListener(messageListener);
 } else {
   console.warn("Failed to attach runtime.onMessage listener: API context missing.");
+}
+
+// Drop cached host results when geo options or backoff change so the next resolve
+// picks up the new homelab URL instead of reusing a public-only cached payload.
+if (API_API?.storage?.onChanged) {
+  API_API.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes[STORAGE_CUSTOM_GEO_BASE_URL] || changes[STORAGE_HOMELAB_GEO]) {
+      cache.clear();
+    }
+  });
 }
