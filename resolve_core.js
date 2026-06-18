@@ -229,8 +229,20 @@
   const HOMELAB_FETCH_TIMEOUT_MS = 2500;
 
   /**
+   * Normalise a string to a two-letter A–Z country code, or "".
+   * @param {unknown} s
+   */
+  function normalizeIso2CountryCode(s) {
+    if (typeof s !== "string") return "";
+    const t = s.trim().toUpperCase();
+    return t.length === 2 && /^[A-Z]{2}$/.test(t) ? t : "";
+  }
+
+  /**
    * Parse JSON from a custom homelab geo service (GET {base}/{ip}).
-   * Supports a thin `{ country, countryCode }` wrapper and cloud66-oss/geo-style `country.iso_code` / `country.names`.
+   * Supports: `countryCode` / `country_code`; or **MaxMind-like** flat JSON where **`country` is the ISO-2 code**
+   * (e.g. `"country":"DE"`) when no separate `countryCode` is present; optional `countryName` / `country_name`;
+   * and cloud66-oss/geo-style `country` object with `iso_code` / `names`.
    * @param {any} data
    * @returns {{ country: string, countryCode: string }}
    */
@@ -238,28 +250,53 @@
     if (!data || typeof data !== "object") {
       throw new Error("Invalid geo JSON");
     }
-    if (typeof data.countryCode === "string" && data.countryCode.length === 2) {
-      const countryCode = data.countryCode.toUpperCase();
-      const country =
-        typeof data.country === "string" && data.country.trim()
-          ? data.country.trim()
-          : regionDisplayName(countryCode) || countryCode;
-      return { country, countryCode };
+
+    let countryCode = normalizeIso2CountryCode(
+      (typeof data.countryCode === "string" && data.countryCode) ||
+        (typeof data.country_code === "string" && data.country_code) ||
+        ""
+    );
+    if (!countryCode && typeof data.country === "string") {
+      countryCode = normalizeIso2CountryCode(data.country);
     }
-    const c = data.country;
-    if (c && typeof c === "object" && typeof c.iso_code === "string" && c.iso_code.length === 2) {
-      const countryCode = c.iso_code.toUpperCase();
-      let name = "";
-      if (c.names && typeof c.names === "object") {
-        if (typeof c.names.en === "string" && c.names.en.trim()) {
-          name = c.names.en.trim();
-        } else {
-          const first = Object.values(c.names).find((v) => typeof v === "string" && v.trim());
-          name = typeof first === "string" ? first.trim() : "";
+
+    if (countryCode) {
+      const explicitName =
+        (typeof data.countryName === "string" && data.countryName.trim()) ||
+        (typeof data.country_name === "string" && data.country_name.trim()) ||
+        "";
+      let countryFromCountryField = "";
+      if (typeof data.country === "string") {
+        const raw = data.country.trim();
+        if (raw && normalizeIso2CountryCode(raw) !== countryCode) {
+          countryFromCountryField = raw;
         }
       }
-      const country = name || regionDisplayName(countryCode) || countryCode;
+      const country =
+        explicitName ||
+        countryFromCountryField ||
+        regionDisplayName(countryCode) ||
+        countryCode;
       return { country, countryCode };
+    }
+
+    const c = data.country;
+    if (c && typeof c === "object") {
+      const iso = normalizeIso2CountryCode(c.iso_code);
+      if (iso) {
+        const countryCodeNested = iso;
+        let name = "";
+        if (c.names && typeof c.names === "object") {
+          if (typeof c.names.en === "string" && c.names.en.trim()) {
+            name = c.names.en.trim();
+          } else {
+            const first = Object.values(c.names).find((v) => typeof v === "string" && v.trim());
+            name = typeof first === "string" ? first.trim() : "";
+          }
+        }
+        const country = name || regionDisplayName(countryCodeNested) || countryCodeNested;
+        return { country, countryCode: countryCodeNested };
+      }
     }
     throw new Error("Geo lookup unsuccessful");
   }
