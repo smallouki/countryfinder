@@ -1,13 +1,15 @@
 # Show Country
 
-Minimal **Chrome** and **Firefox** extension (Manifest V3): resolves the **top-level page hostname** to an IP (via DNS-over-HTTPS), looks up **approximate country** using public IP geolocation APIs, and shows a **small flag** in the bottom-right of the page. **Country name and IP appear only on hover.**
+Minimal **Chrome** and **Firefox** extension (Manifest V3): resolves the **top-level page hostname** to an IP, looks up **approximate country** using public IP geolocation APIs, and shows a **small flag** in the bottom-right of the page. **Country name and IP appear only on hover.**
+
+**DNS:** On **Firefox / LibreWolf**, hostname resolution uses the **`dns` WebExtension API** (`browser.dns.resolve` with `disable_trr`), i.e. **your normal system / network DNS** (not extension `fetch` to public DoH URLs). On **Chrome**, MV3 extensions have no equivalent API, so the extension still uses **DNS-over-HTTPS** for that step.
 
 ## Browser support
 
 | Browser | Minimum | Manifest |
 |---------|---------|----------|
 | **Chrome** / Chromium | Current stable channel practices (MV3) | [`manifest.json`](manifest.json) |
-| **Firefox** | **128.0** (MV3; `optional_host_permissions` for configurable self-hosted geo; background uses **`scripts`**, not `service_worker`) | [`manifest-firefox.json`](manifest-firefox.json) — same logic as Chrome; Gecko id for signing/temporary install. |
+| **Firefox** | **128.0** (MV3; `dns` + `optional_host_permissions`; background uses **`scripts`**, not `service_worker`) | [`manifest-firefox.json`](manifest-firefox.json) — same logic as Chrome; Gecko id for signing/temporary install. |
 
 The same `service_worker.js`, `resolve_core.js`, `content/`, `options.html`, `options.js`, `options.css`, and `icons/` are used for both; only the manifest differs.
 
@@ -89,7 +91,8 @@ Release tags use **`v{version}-build.{run_number}`** so repeated pushes do not c
 
 | Permission / access | Why |
 |---------------------|-----|
-| **Host permissions** (in each manifest) | Allow the service worker to call DoH and geolocation endpoints and to load flag images. |
+| **Host permissions** | **Chrome:** DoH resolvers plus geolocation and flag CDN (see manifest). **Firefox:** geolocation, flags, and optional self-hosted geo only — **no** public DoH hosts, because DNS uses the `dns` API instead. |
+| **`dns`** (Firefox / LibreWolf manifest only) | Resolve the tab hostname with **`browser.dns.resolve`** (flags include **`disable_trr`** so Firefox’s own DoH/TRR is not used). That follows **your OS / network DNS** (e.g. the server you configured in system settings), not extension-initiated DoH `fetch` calls. |
 | **`storage`** | Save the optional custom geo base URL and homelab retry/backoff timestamps. |
 | **`optional_host_permissions`** (`http://*/*`, `https://*/*`) | Allow granting **only the origins you configure** in options (self-hosted geo). Nothing is prefetched automatically beyond your saved URL. |
 | **Content scripts** on `<all_urls>` | Inject the small overlay on normal web pages. |
@@ -100,18 +103,21 @@ The extension does **not** read passwords, form data, or browsing history. Netwo
 
 When a page is loaded, the extension may send:
 
-- The **hostname** (and DNS query type) to **DNS-over-HTTPS** providers.
-- The **resolved IP address** to **IP geolocation** services.
+- **Firefox / LibreWolf:** The **hostname** to the browser’s **native DNS resolver** via `browser.dns.resolve` (with **`disable_trr`**, so Firefox’s **Trusted Recursive Resolver / browser DoH** is not used). That uses the same path as normal name resolution for your configured **system / network DNS** — **not** HTTPS requests to Quad9 etc. from this add-on.
+- **Chrome / Chromium:** The **hostname** to **DNS-over-HTTPS** endpoints listed in [`manifest.json`](manifest.json) (there is no supported way for MV3 extensions to call only the OS resolver for arbitrary hostnames). Resolvers are tried **in order**; **Quad9 is first**. **Google Public DNS is not used.**
+- **All browsers:** The **resolved IP address** to **IP geolocation** services (and optionally your **custom geo base URL**).
 
 If you configure a **custom geo base URL** in options, the **resolved public IP** is also sent to **that** origin (first), using `GET {your base}/{ip}` as documented above. Those requests are made by the extension’s **service worker**, not by the web page. No separate analytics or telemetry are implemented in this repository; any logging depends on the browser and OS.
 
 ### Third-party endpoints (manifest host permissions)
 
-DNS / DoH (examples): Google, Quad9, OpenDNS, AdGuard, Cloudflare, `1.1.1.1`.
+**Chrome — DNS / DoH (hostname → IP):** Quad9, OpenDNS, AdGuard, Cloudflare, `1.1.1.1` (no Google Public DNS).
 
-Geolocation (examples): reallyfreegeoip.org, ipinfo.io, ipwho.is, ipapi.co, geojs.io, ip-api.com (HTTP fallback).
+**Firefox:** No DoH hosts in the manifest for DNS; hostname resolution uses the **`dns`** permission and **`browser.dns.resolve`** instead.
 
-Flags: flagcdn.com.
+**All — Geolocation (examples):** reallyfreegeoip.org, ipinfo.io, ipwho.is, ipapi.co, geojs.io, ip-api.com (HTTP fallback).
+
+**All — Flags:** flagcdn.com.
 
 ## Legal notices & limitations (important)
 

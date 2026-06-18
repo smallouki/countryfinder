@@ -1,7 +1,6 @@
-/** Hostname → IP (DoH) and IP → country; service worker only (importScripts). */
+/** Hostname → IP (Firefox: system DNS via browser.dns; Chrome: DoH) and IP → country; service worker only (importScripts). */
 
 (function () {
-  const DOH_GOOGLE = "https://dns.google/resolve";
   const DOH_QUAD9 = "https://dns.quad9.net/dns-query";
   const DOH_OPENDNS = "https://doh.opendns.com/dns-query";
   const DOH_ADGUARD = "https://dns.adguard-dns.com/dns-query";
@@ -111,29 +110,13 @@
   }
 
   /**
-   * @param {string} name
-   * @param {number} typeNum
-   */
-  async function dohGoogle(name, typeNum) {
-    const url = new URL(DOH_GOOGLE);
-    url.searchParams.set("name", name);
-    url.searchParams.set("type", String(typeNum));
-    const res = await fetch(url.toString(), {
-      headers: { Accept: "application/dns-json" },
-    });
-    if (!res.ok) throw new Error(`DNS lookup failed (${res.status})`);
-    const json = await res.json();
-    return pickDohAnswer(json, typeNum);
-  }
-
-  /**
+   * Chrome (and any non-Firefox) fallback: DoH chain. Quad9 is first; Google Public DNS is not used.
    * @param {string} name
    * @param {'A' | 'AAAA'} type
    */
   async function dohQuery(name, type) {
     const typeNum = type === "A" ? 1 : 28;
     const resolvers = [
-      () => dohGoogle(name, typeNum),
       () => dohDnsJsonQuery(DOH_QUAD9, name, typeNum),
       () => dohDnsJsonQuery(DOH_OPENDNS, name, typeNum),
       () => dohDnsJsonQuery(DOH_ADGUARD, name, typeNum),
@@ -156,12 +139,61 @@
     return null;
   }
 
+  function isFirefoxDnsApiAvailable() {
+    const root = typeof self !== "undefined" ? self : globalThis;
+    return !!(root.browser?.dns && typeof root.browser.dns.resolve === "function");
+  }
+
+  /**
+   * Firefox / LibreWolf only: resolve via the browser's native resolver (your OS / network DNS),
+   * not via extension-initiated DoH. `disable_trr` skips Firefox "Trusted Recursive Resolver" (DoH)
+   * so lookups follow normal system DNS when the user has turned off DoH in the browser.
+   * @param {string} hostname
+   * @returns {Promise<string | null>}
+   */
+  async function resolveHostnameToIpViaFirefoxDns(hostname) {
+    const root = typeof self !== "undefined" ? self : globalThis;
+    const b = root.browser;
+    if (!b?.dns || typeof b.dns.resolve !== "function") {
+      return null;
+    }
+    const flags = ["disable_trr", "bypass_cache"];
+    try {
+      const res = await b.dns.resolve(hostname, flags);
+      const addrs = Array.isArray(res?.addresses) ? res.addresses : [];
+      for (const raw of addrs) {
+        const a = String(raw || "")
+          .split("%")[0]
+          .replace(/^\[|\]$/g, "")
+          .trim();
+        if (!a) continue;
+        if (IPV4_RE.test(a)) return a;
+      }
+      for (const raw of addrs) {
+        const a = String(raw || "")
+          .split("%")[0]
+          .replace(/^\[|\]$/g, "")
+          .trim();
+        if (a.includes(":")) return a;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
   /**
    * @param {string} hostname
    */
   async function resolveHostnameToIp(hostname) {
     const lit = isLiteralIp(hostname);
     if (lit) return hostname;
+
+    if (isFirefoxDnsApiAvailable()) {
+      const native = await resolveHostnameToIpViaFirefoxDns(hostname);
+      if (native) return native;
+      throw new Error("No A/AAAA record found");
+    }
 
     const v4 = await dohQuery(hostname, "A");
     if (v4) return v4;
