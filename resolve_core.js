@@ -139,9 +139,49 @@
     return null;
   }
 
-  function isFirefoxDnsApiAvailable() {
+  function getFirefoxDns() {
+    try {
+      if (typeof browser !== "undefined" && browser.dns && typeof browser.dns.resolve === "function") {
+        return browser.dns;
+      }
+    } catch {
+      /* `browser` may be undeclared in some workers */
+    }
     const root = typeof self !== "undefined" ? self : globalThis;
-    return !!(root.browser?.dns && typeof root.browser.dns.resolve === "function");
+    if (root.browser?.dns && typeof root.browser.dns.resolve === "function") {
+      return root.browser.dns;
+    }
+    return null;
+  }
+
+  function isFirefoxDnsApiAvailable() {
+    return !!getFirefoxDns();
+  }
+
+  /**
+   * @param {string[]|undefined} addrs
+   * @returns {{ v4: string | null, v6: string | null }}
+   */
+  function pickV4V6FromDnsAddresses(addrs) {
+    let v4 = null;
+    let v6 = null;
+    if (!Array.isArray(addrs)) {
+      return { v4, v6 };
+    }
+    for (const raw of addrs) {
+      const a = String(raw || "")
+        .split("%")[0]
+        .replace(/^\[|\]$/g, "")
+        .trim();
+      if (!a) continue;
+      if (!v4 && IPV4_RE.test(a)) {
+        v4 = a;
+      }
+      if (!v6 && a.includes(":")) {
+        v6 = a.split("%")[0];
+      }
+    }
+    return { v4, v6 };
   }
 
   /**
@@ -152,14 +192,13 @@
    * @returns {Promise<string | null>}
    */
   async function resolveHostnameToIpViaFirefoxDns(hostname) {
-    const root = typeof self !== "undefined" ? self : globalThis;
-    const b = root.browser;
-    if (!b?.dns || typeof b.dns.resolve !== "function") {
+    const dns = getFirefoxDns();
+    if (!dns) {
       return null;
     }
     const flags = ["disable_trr", "bypass_cache"];
     try {
-      const res = await b.dns.resolve(hostname, flags);
+      const res = await dns.resolve(hostname, flags);
       const addrs = Array.isArray(res?.addresses) ? res.addresses : [];
       for (const raw of addrs) {
         const a = String(raw || "")
@@ -274,9 +313,10 @@
   }
 
   /**
-   * Homelab GET. On Firefox, fetch() may fail to resolve internal hostnames even when
-   * browser.dns.resolve (disable_trr) succeeds — different resolver path. For http: bases,
-   * retry once using the IPv4/IPv6 from browser.dns.resolve (cannot set Host header in fetch).
+   * Homelab GET. On Firefox, `fetch` to a hostname can fail DNS even when `browser.dns.resolve`
+   * works (split-horizon / internal zones). We resolve with `browser.dns` first and call `http://IP/…`
+   * so the request origin matches host_permissions (Firefox manifest includes a wildcard http pattern for literal IPs).
+   * Falls back to the configured hostname URL. HTTPS homelab is hostname-only (no IP literal retry).
    * @param {string} baseUrl trimmed base without trailing slash
    * @param {string} ip
    * @param {number} timeoutMs
@@ -287,58 +327,39 @@
 
     const run = async (urlStr) => parseCustomGeoJson(await fetchHomelabJson(urlStr, timeoutMs));
 
+    let u;
     try {
+      u = new URL(urlByName);
+    } catch {
       return await run(urlByName);
-    } catch (firstErr) {
-      if (!isFirefoxDnsApiAvailable()) throw firstErr;
-      let u;
-      try {
-        u = new URL(urlByName);
-      } catch {
-        throw firstErr;
-      }
-      if (u.protocol !== "http:") throw firstErr;
-
-      const root = typeof self !== "undefined" ? self : globalThis;
-      let rec;
-      try {
-        rec = await root.browser.dns.resolve(u.hostname, ["disable_trr", "bypass_cache"]);
-      } catch {
-        throw firstErr;
-      }
-      const addrs = Array.isArray(rec?.addresses) ? rec.addresses : [];
-      let v4 = null;
-      for (const raw of addrs) {
-        const a = String(raw || "")
-          .split("%")[0]
-          .replace(/^\[|\]$/g, "")
-          .trim();
-        if (IPV4_RE.test(a)) {
-          v4 = a;
-          break;
-        }
-      }
-      if (v4) {
-        const urlByIp = `http://${v4}${u.pathname}${u.search}`;
-        return await run(urlByIp);
-      }
-      let v6 = null;
-      for (const raw of addrs) {
-        const a = String(raw || "")
-          .split("%")[0]
-          .replace(/^\[|\]$/g, "")
-          .trim();
-        if (a.includes(":")) {
-          v6 = a.split("%")[0];
-          break;
-        }
-      }
-      if (v6) {
-        const urlByIp = `http://[${v6}]${u.pathname}${u.search}`;
-        return await run(urlByIp);
-      }
-      throw firstErr;
     }
+
+    const dns = getFirefoxDns();
+    if (dns && u.protocol === "http:") {
+      try {
+        const rec = await dns.resolve(u.hostname, ["disable_trr", "bypass_cache"]);
+        const { v4, v6 } = pickV4V6FromDnsAddresses(rec?.addresses);
+        if (v4) {
+          try {
+            return await run(`http://${v4}${u.pathname}${u.search}`);
+          } catch {
+            /* e.g. vHost needs Host: name — try hostname fetch below */
+          }
+        }
+        if (v6) {
+          const bare = v6.split("%")[0];
+          try {
+            return await run(`http://[${bare}]${u.pathname}${u.search}`);
+          } catch {
+            /* */
+          }
+        }
+      } catch {
+        /* dns.resolve failed — try hostname */
+      }
+    }
+
+    return await run(urlByName);
   }
 
   /**
