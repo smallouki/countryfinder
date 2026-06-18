@@ -5,7 +5,6 @@
       : globalThis.chrome;
 
   const STORAGE_CUSTOM_GEO_BASE_URL = "customGeoBaseUrl";
-  const STORAGE_HOMELAB_GEO = "homelabGeo";
   const STORAGE_ENABLED_PUBLIC_GEO = "enabledPublicGeoProviders";
 
   /** @type {readonly { id: string, label: string }[]} */
@@ -128,13 +127,12 @@
           [STORAGE_CUSTOM_GEO_BASE_URL]: normalized,
           [STORAGE_ENABLED_PUBLIC_GEO]: enabled,
         });
-        await runtime.storage.local.remove(STORAGE_HOMELAB_GEO);
         setStatus(
           "Saved. Only your custom URL is used for country lookup; public geo APIs are disabled until you clear the URL.",
           "ok"
         );
       } else {
-        await runtime.storage.local.remove([STORAGE_CUSTOM_GEO_BASE_URL, STORAGE_HOMELAB_GEO]);
+        await runtime.storage.local.remove(STORAGE_CUSTOM_GEO_BASE_URL);
         await runtime.storage.local.set({ [STORAGE_ENABLED_PUBLIC_GEO]: enabled });
         setStatus("Saved. Public provider selection applies when no custom URL is set.", "ok");
       }
@@ -147,8 +145,8 @@
     input.value = "";
     setStatus("");
     try {
-      await runtime.storage.local.remove([STORAGE_CUSTOM_GEO_BASE_URL, STORAGE_HOMELAB_GEO]);
-      setStatus("Cleared custom geo URL and homelab backoff state.", "ok");
+      await runtime.storage.local.remove(STORAGE_CUSTOM_GEO_BASE_URL);
+      setStatus("Cleared custom geo URL.", "ok");
     } catch (err) {
       setStatus(err instanceof Error ? err.message : String(err), "error");
     }

@@ -13,17 +13,14 @@ if (typeof importScripts === "function") {
 const API_API = getApiContext();
 
 const STORAGE_CUSTOM_GEO_BASE_URL = "customGeoBaseUrl";
-const STORAGE_HOMELAB_GEO = "homelabGeo";
 const STORAGE_ENABLED_PUBLIC_GEO = "enabledPublicGeoProviders";
-const HOMELAB_BACKOFF_MS = 5 * 60 * 1000;
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 /** @type {Map<string, { expires: number, payload: ServerMetaOk }>} */
 const cache = new Map();
 
 /**
- * Serialize host resolves so `applyHomelabBackoffFromResult` never interleaves with another
- * in-flight resolve (parallel tabs/frames could otherwise write backoff after a success).
+ * Serialize host resolves so parallel tabs do not interleave cache reads/writes oddly.
  * @type {Promise<void>}
  */
 let resolveMutexTail = Promise.resolve();
@@ -42,46 +39,24 @@ function runResolveExclusive(fn) {
   return next;
 }
 
-/** @typedef {{ ok: true, ip: string, country: string, countryCode: string, flagUrl: string, iconType: 'flag'|'local'|'unknown' }} ServerMetaOk */
+/** @typedef {{ ok: true, ip: string, country: string, countryCode: string, flagUrl: string, iconType: 'flag'|'local'|'unknown'|'geo_error', latitude?: number, longitude?: number, geoErrorHint?: string }} ServerMetaOk */
 /** @typedef {{ ok: false, error: string }} ServerMetaErr */
 
 /**
- * @returns {Promise<{ customGeoBaseUrl: string, homelabNextTryAt: number, enabledPublicGeoProviders: string[] }>}
+ * @returns {Promise<{ customGeoBaseUrl: string, enabledPublicGeoProviders: string[] }>}
  */
 async function loadHomelabOpts() {
   const data = await API_API.storage.local.get([
     STORAGE_CUSTOM_GEO_BASE_URL,
-    STORAGE_HOMELAB_GEO,
     STORAGE_ENABLED_PUBLIC_GEO,
   ]);
   const customGeoBaseUrl =
     typeof data[STORAGE_CUSTOM_GEO_BASE_URL] === "string" ? data[STORAGE_CUSTOM_GEO_BASE_URL] : "";
-  const raw = data[STORAGE_HOMELAB_GEO];
-  const homelabNextTryAt =
-    raw && typeof raw === "object" && typeof raw.nextTryAt === "number" ? raw.nextTryAt : 0;
   const rawProviders = data[STORAGE_ENABLED_PUBLIC_GEO];
   const enabledPublicGeoProviders = Array.isArray(rawProviders)
     ? rawProviders.filter((x) => typeof x === "string")
     : [];
-  return { customGeoBaseUrl, homelabNextTryAt, enabledPublicGeoProviders };
-}
-
-/**
- * @param {Record<string, unknown>} result
- */
-async function applyHomelabBackoffFromResult(result) {
-  if (!result || !result.ok) return;
-  const state = /** @type {unknown} */ (result)._homelabState;
-  if (state === "success") {
-    await API_API.storage.local.remove(STORAGE_HOMELAB_GEO);
-  } else if (state === "fail_after_attempt") {
-    await API_API.storage.local.set({
-      [STORAGE_HOMELAB_GEO]: { nextTryAt: Date.now() + HOMELAB_BACKOFF_MS },
-    });
-  }
-  if ("_homelabState" in result) {
-    delete /** @type {{ _homelabState?: string }} */ (result)._homelabState;
-  }
+  return { customGeoBaseUrl, enabledPublicGeoProviders };
 }
 
 async function resolveServerMeta(hostname, protocol) {
@@ -100,7 +75,6 @@ async function resolveServerMeta(hostname, protocol) {
     }
 
     const result = await self.resolveServerMetaUncached(hostname, protocol, homelabOpts);
-    await applyHomelabBackoffFromResult(result);
     if (result.ok) {
       cache.set(cacheKey, { expires: Date.now() + CACHE_TTL_MS, payload: result });
     }
@@ -110,6 +84,31 @@ async function resolveServerMeta(hostname, protocol) {
 
 // Use the determined API context's message listener
 const messageListener = (msg, _sender, sendResponse) => {
+  if (msg?.type === "OPEN_OSM") {
+    const lat = msg.latitude;
+    const lon = msg.longitude;
+    if (
+      typeof lat === "number" &&
+      typeof lon === "number" &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lon) &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lon >= -180 &&
+      lon <= 180
+    ) {
+      const url = `https://www.openstreetmap.org/?mlat=${encodeURIComponent(String(lat))}&mlon=${encodeURIComponent(String(lon))}&zoom=12`;
+      try {
+        if (API_API.tabs && typeof API_API.tabs.create === "function") {
+          API_API.tabs.create({ url, active: true });
+        }
+      } catch (e) {
+        console.warn("show-country: tabs.create failed", e);
+      }
+    }
+    return false;
+  }
+
   if (msg?.type !== "RESOLVE_SERVER_META") return false;
 
   resolveServerMeta(msg.hostname, msg.protocol)
@@ -131,16 +130,11 @@ if (API_API?.runtime?.onMessage) {
   console.warn("Failed to attach runtime.onMessage listener: API context missing.");
 }
 
-// Drop cached host results when geo options or backoff change so the next resolve
-// picks up the new homelab URL instead of reusing a public-only cached payload.
+// Drop cached host results when geo options change so the next resolve picks up new settings.
 if (API_API?.storage?.onChanged) {
   API_API.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (
-      changes[STORAGE_CUSTOM_GEO_BASE_URL] ||
-      changes[STORAGE_HOMELAB_GEO] ||
-      changes[STORAGE_ENABLED_PUBLIC_GEO]
-    ) {
+    if (changes[STORAGE_CUSTOM_GEO_BASE_URL] || changes[STORAGE_ENABLED_PUBLIC_GEO]) {
       cache.clear();
     }
   });

@@ -46,6 +46,23 @@
       "</svg>"
   );
 
+  const GEO_ERROR_SVG = svgDataUrl(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="20" viewBox="0 0 28 20">' +
+      "<defs>" +
+      '<linearGradient id="gerrBg" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="#fff1f2"/><stop offset="0.42" stop-color="#fecdd3"/><stop offset="1" stop-color="#fb7185"/></linearGradient>' +
+      '<linearGradient id="gerrShine" x1="0" y1="0" x2="1" y2="0.35">' +
+      '<stop offset="0" stop-color="#fff" stop-opacity="0.4"/><stop offset="0.55" stop-color="#fff" stop-opacity="0.06"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>' +
+      '<linearGradient id="gerrMark" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="#fecaca"/><stop offset="1" stop-color="#991b1b"/></linearGradient>' +
+      "</defs>" +
+      '<rect width="28" height="20" rx="2.5" fill="url(#gerrBg)" stroke="rgba(153,27,27,0.5)" stroke-width="0.55"/>' +
+      '<rect x="0.65" y="0.65" width="26.7" height="18.7" rx="2.05" fill="none" stroke="url(#gerrShine)" stroke-width="0.4"/>' +
+      '<rect x="12.85" y="3.6" width="2.3" height="8.4" rx="1.15" fill="url(#gerrMark)" stroke="rgba(255,255,255,0.45)" stroke-width="0.22"/>' +
+      '<circle cx="14" cy="15.15" r="2.05" fill="url(#gerrMark)" stroke="rgba(255,255,255,0.45)" stroke-width="0.22"/>' +
+      "</svg>"
+  );
+
   const EXT_STYLE = `
     :host {
       display: block;
@@ -77,6 +94,14 @@
       cursor: default;
       position: relative;
       box-sizing: border-box;
+    }
+    .chip.chip--error {
+      background: rgba(69, 10, 10, 0.2);
+      border-radius: 2.5px;
+      box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.38);
+    }
+    .chip.chip--map {
+      cursor: pointer;
     }
     .chip:hover .tooltip {
       opacity: 1;
@@ -124,14 +149,41 @@
     return document.body || document.documentElement;
   }
 
+  /**
+   * @param {string} s
+   * @param {number} maxLen
+   */
+  function truncateTooltipHint(s, maxLen) {
+    const t = (s || "").trim().replace(/\s+/g, " ");
+    if (t.length <= maxLen) return t;
+    return `${t.slice(0, Math.max(0, maxLen - 1))}…`;
+  }
+
+  /**
+   * @param {any} meta
+   */
   function inferIconType(meta) {
-    if (meta.iconType === "flag" || meta.iconType === "local" || meta.iconType === "unknown") {
+    if (
+      meta.iconType === "flag" ||
+      meta.iconType === "local" ||
+      meta.iconType === "unknown" ||
+      meta.iconType === "geo_error"
+    ) {
       return meta.iconType;
     }
     const c = String(meta.country || "").toLowerCase();
     if (c === "local" || c === "local network") return "local";
     if (meta.flagUrl) return "flag";
     return "unknown";
+  }
+
+  /**
+   * @param {any} meta
+   */
+  function hasValidMapCoords(meta) {
+    if (typeof meta.latitude !== "number" || typeof meta.longitude !== "number") return false;
+    if (!Number.isFinite(meta.latitude) || !Number.isFinite(meta.longitude)) return false;
+    return meta.latitude >= -90 && meta.latitude <= 90 && meta.longitude >= -180 && meta.longitude <= 180;
   }
 
   async function loadMetaFromBackground(hostname, protocol) {
@@ -166,6 +218,21 @@
         ok: false,
         error: e instanceof Error ? e.message : String(e),
       };
+    }
+  }
+
+  function sendOpenOsmMessage(latitude, longitude) {
+    const msg = { type: "OPEN_OSM", latitude, longitude };
+    try {
+      if (typeof globalThis.browser !== "undefined" && globalThis.browser?.runtime?.sendMessage) {
+        void globalThis.browser.runtime.sendMessage(msg);
+        return;
+      }
+      if (runtime?.sendMessage) {
+        runtime.sendMessage(msg);
+      }
+    } catch {
+      /* ignore */
     }
   }
 
@@ -207,10 +274,15 @@
     const hostname = window.location.hostname || "";
 
     loadMetaFromBackground(hostname, protocol).then((meta) => {
+      chip.classList.remove("chip--error", "chip--map");
+      chip.onclick = null;
+
       if (!meta.ok) {
-        img.src = UNKNOWN_SVG;
+        img.src = GEO_ERROR_SVG;
         img.onerror = null;
-        tooltip.innerHTML = `<strong>Unavailable</strong>${meta.error ? `\n${escapeHtml(String(meta.error))}` : ""}`;
+        chip.classList.add("chip--error");
+        const errLine = meta.error ? `\n${escapeHtml(truncateTooltipHint(String(meta.error), 100))}` : "";
+        tooltip.innerHTML = `<strong>Unavailable</strong>${errLine}`;
         chip.setAttribute(
           "aria-label",
           "Server location unavailable. Hover for details."
@@ -227,6 +299,19 @@
         chip.setAttribute(
           "aria-label",
           "Local network. Hover for details."
+        );
+        return;
+      }
+
+      if (iconType === "geo_error") {
+        img.src = GEO_ERROR_SVG;
+        img.onerror = null;
+        chip.classList.add("chip--error");
+        const hint = meta.geoErrorHint ? `\n${escapeHtml(truncateTooltipHint(String(meta.geoErrorHint), 100))}` : "";
+        tooltip.innerHTML = `<strong>${escapeHtml(meta.country || "Unknown")}</strong>${meta.ip ? `\n${escapeHtml(meta.ip)}` : ""}${hint}`;
+        chip.setAttribute(
+          "aria-label",
+          "Geo provider request failed. Hover for error details."
         );
         return;
       }
@@ -253,6 +338,19 @@
         "aria-label",
         "Server country flag. Hover to show country name and IP."
       );
+
+      if (hasValidMapCoords(meta)) {
+        chip.classList.add("chip--map");
+        chip.setAttribute(
+          "aria-label",
+          "Server country flag. Click to open location on OpenStreetMap. Hover for country and IP."
+        );
+        chip.onclick = (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          sendOpenOsmMessage(meta.latitude, meta.longitude);
+        };
+      }
     });
   }
 

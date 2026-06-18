@@ -226,7 +226,61 @@
     }
   }
 
-  const HOMELAB_FETCH_TIMEOUT_MS = 2500;
+  const HOMELAB_FETCH_TIMEOUT_MS = 1000;
+
+  /**
+   * @param {any} data
+   * @returns {{ latitude?: number, longitude?: number }}
+   */
+  function pickOptionalLatLon(data) {
+    if (!data || typeof data !== "object") return {};
+    let lat = NaN;
+    let lon = NaN;
+    const asNum = (v) => {
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v === "string" && v.trim() !== "") {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : NaN;
+      }
+      return NaN;
+    };
+    lat = asNum(data.latitude);
+    lon = asNum(data.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      lat = asNum(data.lat);
+      lon = asNum(data.lon !== undefined ? data.lon : data.lng);
+    }
+    const locStr = typeof data.loc === "string" ? data.loc.trim() : "";
+    if ((!Number.isFinite(lat) || !Number.isFinite(lon)) && locStr.includes(",")) {
+      const parts = locStr.split(",");
+      lat = asNum(parts[0]);
+      lon = asNum(parts[1]);
+    }
+    const loc = data.location;
+    if ((!Number.isFinite(lat) || !Number.isFinite(lon)) && loc && typeof loc === "object") {
+      lat = asNum(loc.latitude ?? loc.lat);
+      lon = asNum(loc.longitude ?? loc.lon ?? loc.lng);
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return {};
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return {};
+    return { latitude: lat, longitude: lon };
+  }
+
+  /**
+   * @param {unknown} err
+   * @returns {string}
+   */
+  function errorToGeoHint(err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    const name = /** @type {{ name?: string }} */ (e).name;
+    if (name === "AbortError") return "Timeout";
+    let m = (e.message || "Request failed").trim().replace(/\s+/g, " ");
+    const mHttp = /^Geo lookup failed \((\d+)\)$/.exec(m);
+    if (mHttp) return `HTTP ${mHttp[1]}`;
+    if (/failed to fetch|networkerror|load failed|ns_error_connection/i.test(m)) return "Network error";
+    if (m.length > 100) m = `${m.slice(0, 97)}…`;
+    return m;
+  }
 
   /**
    * Normalise a string to a two-letter A–Z country code, or "".
@@ -244,7 +298,7 @@
    * (e.g. `"country":"DE"`) when no separate `countryCode` is present; optional `countryName` / `country_name`;
    * and cloud66-oss/geo-style `country` object with `iso_code` / `names`.
    * @param {any} data
-   * @returns {{ country: string, countryCode: string }}
+   * @returns {{ country: string, countryCode: string, latitude?: number, longitude?: number }}
    */
   function parseCustomGeoJson(data) {
     if (!data || typeof data !== "object") {
@@ -277,7 +331,7 @@
         countryFromCountryField ||
         regionDisplayName(countryCode) ||
         countryCode;
-      return { country, countryCode };
+      return { country, countryCode, ...pickOptionalLatLon(data) };
     }
 
     const c = data.country;
@@ -295,7 +349,7 @@
           }
         }
         const country = name || regionDisplayName(countryCodeNested) || countryCodeNested;
-        return { country, countryCode: countryCodeNested };
+        return { country, countryCode: countryCodeNested, ...pickOptionalLatLon(data) };
       }
     }
     throw new Error("Geo lookup unsuccessful");
@@ -366,7 +420,7 @@
   async function lookupGeoPublic(ip, enabledIds) {
     const order = normalizePublicGeoProviderIds(enabledIds);
 
-    /** @type {Record<string, () => Promise<{ country: string, countryCode: string }>>} */
+    /** @type {Record<string, () => Promise<{ country: string, countryCode: string, latitude?: number, longitude?: number }>>} */
     const byId = {
       ipwho: async () => {
         const res = await fetch(`${GEO_IPWHO}/${encodeURIComponent(ip)}`, {
@@ -383,7 +437,7 @@
         const country = typeof data.country === "string" ? data.country : "";
         const countryCode =
           typeof data.country_code === "string" ? data.country_code.toUpperCase() : "";
-        return { country, countryCode };
+        return { country, countryCode, ...pickOptionalLatLon(data) };
       },
       ipinfo: async () => {
         const res = await fetch(`${GEO_IPINFO}/${encodeURIComponent(ip)}/json`, {
@@ -399,6 +453,7 @@
         return {
           country: regionDisplayName(countryCode) || countryCode,
           countryCode,
+          ...pickOptionalLatLon(data),
         };
       },
       ipapi: async () => {
@@ -418,7 +473,7 @@
               : "";
         const countryCode =
           typeof data.country_code === "string" ? data.country_code.toUpperCase() : "";
-        return { country, countryCode };
+        return { country, countryCode, ...pickOptionalLatLon(data) };
       },
       geojs: async () => {
         const res = await fetch(`${GEO_GEOJS}/${encodeURIComponent(ip)}.json`, {
@@ -432,7 +487,7 @@
         if (!country && !countryCode) {
           throw new Error("Geo lookup unsuccessful");
         }
-        return { country, countryCode };
+        return { country, countryCode, ...pickOptionalLatLon(data) };
       },
       reallyfree: async () => {
         const res = await fetch(`${GEO_REALLY_FREE}/${encodeURIComponent(ip)}`, {
@@ -449,12 +504,12 @@
         const countryCode =
           typeof data.country_code === "string" ? data.country_code.toUpperCase() : "";
         if (!country && !countryCode) throw new Error("Geo lookup unsuccessful");
-        return { country, countryCode };
+        return { country, countryCode, ...pickOptionalLatLon(data) };
       },
       ipapi_http: async () => {
         const url = new URL(GEO_IPAPI_HTTP);
         url.pathname += `/${encodeURIComponent(ip)}`;
-        url.searchParams.set("fields", "status,message,country,countryCode");
+        url.searchParams.set("fields", "status,message,country,countryCode,lat,lon");
         const res = await fetch(url.toString(), {
           headers: { Accept: "application/json" },
         });
@@ -466,7 +521,7 @@
         const country = typeof data.country === "string" ? data.country : "";
         const countryCode =
           typeof data.countryCode === "string" ? data.countryCode.toUpperCase() : "";
-        return { country, countryCode };
+        return { country, countryCode, ...pickOptionalLatLon(data) };
       },
     };
 
@@ -491,36 +546,24 @@
    * When a custom base URL is set: **only** that homelab endpoint is used for country lookup
    * (no public fallbacks). Otherwise uses `lookupGeoPublic` with `enabledPublicGeoProviders`.
    * @param {string} ip
-   * @param {{ customGeoBaseUrl?: string, homelabNextTryAt?: number, enabledPublicGeoProviders?: string[] } | undefined} homelabOpts
-   * @returns {Promise<{ country: string, countryCode: string, _homelabState: 'none'|'skipped'|'success'|'fail_after_attempt' }>}
+   * @param {{ customGeoBaseUrl?: string, enabledPublicGeoProviders?: string[] } | undefined} homelabOpts
+   * @returns {Promise<{ country: string, countryCode: string, latitude?: number, longitude?: number, geoErrorHint?: string }>}
    */
   async function lookupGeoWithOptionalHomelab(ip, homelabOpts) {
     const opts = homelabOpts || {};
     const base = (opts.customGeoBaseUrl || "").trim();
-    const skip =
-      typeof opts.homelabNextTryAt === "number" && opts.homelabNextTryAt > Date.now();
 
     if (!base) {
-      const geo = await lookupGeoPublic(ip, opts.enabledPublicGeoProviders);
-      return { ...geo, _homelabState: /** @type {const} */ ("none") };
-    }
-
-    if (skip) {
-      return {
-        country: "Unknown",
-        countryCode: "",
-        _homelabState: /** @type {const} */ ("skipped"),
-      };
+      return await lookupGeoPublic(ip, opts.enabledPublicGeoProviders);
     }
 
     try {
-      const geo = await lookupGeoHomelab(base, ip, HOMELAB_FETCH_TIMEOUT_MS);
-      return { ...geo, _homelabState: /** @type {const} */ ("success") };
-    } catch {
+      return await lookupGeoHomelab(base, ip, HOMELAB_FETCH_TIMEOUT_MS);
+    } catch (e) {
       return {
         country: "Unknown",
         countryCode: "",
-        _homelabState: /** @type {const} */ ("fail_after_attempt"),
+        geoErrorHint: errorToGeoHint(e),
       };
     }
   }
@@ -534,7 +577,7 @@
   /**
    * @param {string} hostname
    * @param {string} [protocol]
-   * @param {{ customGeoBaseUrl?: string, homelabNextTryAt?: number, enabledPublicGeoProviders?: string[] } | undefined} [homelabOpts]
+   * @param {{ customGeoBaseUrl?: string, enabledPublicGeoProviders?: string[] } | undefined} [homelabOpts]
    */
   async function resolveServerMetaUncached(hostname, protocol, homelabOpts) {
     const hostRaw = (hostname || "").trim();
@@ -556,9 +599,13 @@
       let ip;
       let country = "";
       let countryCode = "";
-      let iconType = /** @type {"flag" | "local" | "unknown"} */ ("unknown");
-      /** @type {'none'|'skipped'|'success'|'fail_after_attempt'|undefined} */
-      let homelabState;
+      let iconType = /** @type {"flag" | "local" | "unknown" | "geo_error"} */ ("unknown");
+      /** @type {number | undefined} */
+      let latitude;
+      /** @type {number | undefined} */
+      let longitude;
+      /** @type {string | undefined} */
+      let geoErrorHint;
 
       if (isLocalHostname(host)) {
         ip = host.includes(":") && !host.includes(".") ? "::1" : "127.0.0.1";
@@ -575,9 +622,17 @@
           const geo = await lookupGeoWithOptionalHomelab(ip, homelabOpts);
           country = geo.country || "Unknown";
           countryCode = geo.countryCode || "";
-          const fu = flagUrlFor(countryCode) || "";
-          iconType = fu ? "flag" : "unknown";
-          homelabState = geo._homelabState;
+          if (geo.geoErrorHint) {
+            iconType = "geo_error";
+            geoErrorHint = geo.geoErrorHint;
+          } else {
+            const fu = flagUrlFor(countryCode) || "";
+            iconType = fu ? "flag" : "unknown";
+          }
+          if (typeof geo.latitude === "number" && typeof geo.longitude === "number") {
+            latitude = geo.latitude;
+            longitude = geo.longitude;
+          }
         }
       }
 
@@ -590,7 +645,8 @@
         countryCode,
         flagUrl,
         iconType,
-        ...(typeof homelabState !== "undefined" ? { _homelabState: homelabState } : {}),
+        ...(typeof latitude === "number" && typeof longitude === "number" ? { latitude, longitude } : {}),
+        ...(typeof geoErrorHint === "string" && geoErrorHint ? { geoErrorHint } : {}),
       };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
