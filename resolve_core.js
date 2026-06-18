@@ -181,10 +181,74 @@
     }
   }
 
+  const HOMELAB_FETCH_TIMEOUT_MS = 2500;
+
   /**
+   * Parse JSON from a custom homelab geo service (GET {base}/{ip}).
+   * Supports a thin `{ country, countryCode }` wrapper and cloud66-oss/geo-style `country.iso_code` / `country.names`.
+   * @param {any} data
+   * @returns {{ country: string, countryCode: string }}
+   */
+  function parseCustomGeoJson(data) {
+    if (!data || typeof data !== "object") {
+      throw new Error("Invalid geo JSON");
+    }
+    if (typeof data.countryCode === "string" && data.countryCode.length === 2) {
+      const countryCode = data.countryCode.toUpperCase();
+      const country =
+        typeof data.country === "string" && data.country.trim()
+          ? data.country.trim()
+          : regionDisplayName(countryCode) || countryCode;
+      return { country, countryCode };
+    }
+    const c = data.country;
+    if (c && typeof c === "object" && typeof c.iso_code === "string" && c.iso_code.length === 2) {
+      const countryCode = c.iso_code.toUpperCase();
+      let name = "";
+      if (c.names && typeof c.names === "object") {
+        if (typeof c.names.en === "string" && c.names.en.trim()) {
+          name = c.names.en.trim();
+        } else {
+          const first = Object.values(c.names).find((v) => typeof v === "string" && v.trim());
+          name = typeof first === "string" ? first.trim() : "";
+        }
+      }
+      const country = name || regionDisplayName(countryCode) || countryCode;
+      return { country, countryCode };
+    }
+    throw new Error("Geo lookup unsuccessful");
+  }
+
+  /**
+   * @param {string} baseUrl trimmed base without trailing slash
+   * @param {string} ip
+   * @param {number} timeoutMs
+   */
+  async function lookupGeoHomelab(baseUrl, ip, timeoutMs) {
+    const base = baseUrl.replace(/\/+$/, "");
+    const url = `${base}/${encodeURIComponent(ip)}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        signal: ctrl.signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) {
+        throw new Error(`Geo lookup failed (${res.status})`);
+      }
+      const data = await res.json();
+      return parseCustomGeoJson(data);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Public geo API chain (existing providers).
    * @param {string} ip
    */
-  async function lookupGeo(ip) {
+  async function lookupGeoPublic(ip) {
     const lookups = [
       async () => {
         const res = await fetch(`${GEO_REALLY_FREE}/${encodeURIComponent(ip)}`, {
@@ -299,6 +363,34 @@
     throw lastErr || new Error("Geo lookup failed");
   }
 
+  /**
+   * @param {string} ip
+   * @param {{ customGeoBaseUrl?: string, homelabNextTryAt?: number } | undefined} homelabOpts
+   * @returns {Promise<{ country: string, countryCode: string, _homelabState: 'none'|'skipped'|'success'|'fail_after_attempt' }>}
+   */
+  async function lookupGeoWithOptionalHomelab(ip, homelabOpts) {
+    const opts = homelabOpts || {};
+    const base = (opts.customGeoBaseUrl || "").trim();
+    const skip =
+      typeof opts.homelabNextTryAt === "number" && opts.homelabNextTryAt > Date.now();
+
+    if (!base) {
+      const geo = await lookupGeoPublic(ip);
+      return { ...geo, _homelabState: /** @type {const} */ ("none") };
+    }
+    if (skip) {
+      const geo = await lookupGeoPublic(ip);
+      return { ...geo, _homelabState: /** @type {const} */ ("skipped") };
+    }
+    try {
+      const geo = await lookupGeoHomelab(base, ip, HOMELAB_FETCH_TIMEOUT_MS);
+      return { ...geo, _homelabState: /** @type {const} */ ("success") };
+    } catch {
+      const geo = await lookupGeoPublic(ip);
+      return { ...geo, _homelabState: /** @type {const} */ ("fail_after_attempt") };
+    }
+  }
+
   function flagUrlFor(countryCode) {
     if (!countryCode || countryCode.length !== 2) return "";
     const cc = countryCode.toLowerCase();
@@ -308,8 +400,9 @@
   /**
    * @param {string} hostname
    * @param {string} [protocol]
+   * @param {{ customGeoBaseUrl?: string, homelabNextTryAt?: number } | undefined} [homelabOpts]
    */
-  async function resolveServerMetaUncached(hostname, protocol) {
+  async function resolveServerMetaUncached(hostname, protocol, homelabOpts) {
     const hostRaw = (hostname || "").trim();
     const host = hostRaw.toLowerCase();
 
@@ -330,6 +423,8 @@
       let country = "";
       let countryCode = "";
       let iconType = /** @type {"flag" | "local" | "unknown"} */ ("unknown");
+      /** @type {'none'|'skipped'|'success'|'fail_after_attempt'|undefined} */
+      let homelabState;
 
       if (isLocalHostname(host)) {
         ip = host.includes(":") && !host.includes(".") ? "::1" : "127.0.0.1";
@@ -343,11 +438,12 @@
           countryCode = "";
           iconType = "local";
         } else {
-          const geo = await lookupGeo(ip);
+          const geo = await lookupGeoWithOptionalHomelab(ip, homelabOpts);
           country = geo.country || "Unknown";
           countryCode = geo.countryCode || "";
           const fu = flagUrlFor(countryCode) || "";
           iconType = fu ? "flag" : "unknown";
+          homelabState = geo._homelabState;
         }
       }
 
@@ -360,6 +456,7 @@
         countryCode,
         flagUrl,
         iconType,
+        ...(typeof homelabState !== "undefined" ? { _homelabState: homelabState } : {}),
       };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

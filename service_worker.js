@@ -12,12 +12,47 @@ if (typeof importScripts === "function") {
 
 const API_API = getApiContext();
 
+const STORAGE_CUSTOM_GEO_BASE_URL = "customGeoBaseUrl";
+const STORAGE_HOMELAB_GEO = "homelabGeo";
+const HOMELAB_BACKOFF_MS = 5 * 60 * 1000;
+
 const CACHE_TTL_MS = 15 * 60 * 1000;
 /** @type {Map<string, { expires: number, payload: ServerMetaOk }>} */
 const cache = new Map();
 
 /** @typedef {{ ok: true, ip: string, country: string, countryCode: string, flagUrl: string, iconType: 'flag'|'local'|'unknown' }} ServerMetaOk */
 /** @typedef {{ ok: false, error: string }} ServerMetaErr */
+
+/**
+ * @returns {Promise<{ customGeoBaseUrl: string, homelabNextTryAt: number }>}
+ */
+async function loadHomelabOpts() {
+  const data = await API_API.storage.local.get([STORAGE_CUSTOM_GEO_BASE_URL, STORAGE_HOMELAB_GEO]);
+  const customGeoBaseUrl =
+    typeof data[STORAGE_CUSTOM_GEO_BASE_URL] === "string" ? data[STORAGE_CUSTOM_GEO_BASE_URL] : "";
+  const raw = data[STORAGE_HOMELAB_GEO];
+  const homelabNextTryAt =
+    raw && typeof raw === "object" && typeof raw.nextTryAt === "number" ? raw.nextTryAt : 0;
+  return { customGeoBaseUrl, homelabNextTryAt };
+}
+
+/**
+ * @param {Record<string, unknown>} result
+ */
+async function applyHomelabBackoffFromResult(result) {
+  if (!result || !result.ok) return;
+  const state = /** @type {unknown} */ (result)._homelabState;
+  if (state === "success") {
+    await API_API.storage.local.remove(STORAGE_HOMELAB_GEO);
+  } else if (state === "fail_after_attempt") {
+    await API_API.storage.local.set({
+      [STORAGE_HOMELAB_GEO]: { nextTryAt: Date.now() + HOMELAB_BACKOFF_MS },
+    });
+  }
+  if ("_homelabState" in result) {
+    delete /** @type {{ _homelabState?: string }} */ (result)._homelabState;
+  }
+}
 
 async function resolveServerMeta(hostname, protocol) {
   const hostRaw = (hostname || "").trim();
@@ -29,7 +64,9 @@ async function resolveServerMeta(hostname, protocol) {
     return hit.payload;
   }
 
-  const result = await self.resolveServerMetaUncached(hostname, protocol);
+  const homelabOpts = await loadHomelabOpts();
+  const result = await self.resolveServerMetaUncached(hostname, protocol, homelabOpts);
+  await applyHomelabBackoffFromResult(result);
   if (result.ok) {
     cache.set(cacheKey, { expires: Date.now() + CACHE_TTL_MS, payload: result });
   }
@@ -50,7 +87,7 @@ const messageListener = (msg, _sender, sendResponse) => {
     });
 
   return true;
-}
+};
 
 // Messaging lives on runtime, not the extension root (chrome.runtime / browser.runtime).
 if (API_API?.runtime?.onMessage) {

@@ -7,9 +7,31 @@ Minimal **Chrome** and **Firefox** extension (Manifest V3): resolves the **top-l
 | Browser | Minimum | Manifest |
 |---------|---------|----------|
 | **Chrome** / Chromium | Current stable channel practices (MV3) | [`manifest.json`](manifest.json) |
-| **Firefox** | **121.0** (MV3; background uses **`scripts`**, not `service_worker`) | [`manifest-firefox.json`](manifest-firefox.json) — same logic as Chrome; Gecko id for signing/temporary install. |
+| **Firefox** | **128.0** (MV3; `optional_host_permissions` for configurable self-hosted geo; background uses **`scripts`**, not `service_worker`) | [`manifest-firefox.json`](manifest-firefox.json) — same logic as Chrome; Gecko id for signing/temporary install. |
 
-The same `service_worker.js`, `resolve_core.js`, `content/`, and `icons/` are used for both; only the manifest differs.
+The same `service_worker.js`, `resolve_core.js`, `content/`, `options.html`, `options.js`, `options.css`, and `icons/` are used for both; only the manifest differs.
+
+## Extension options (optional self-hosted geo)
+
+You can point the extension at a **small HTTP(S) service** you control (for example [cloud66-oss/geo](https://github.com/cloud66-oss/geo) behind `http://geoip.tma` or a reverse proxy). Open the extension **options** page:
+
+| Browser | Where to open options |
+|---------|-------------------------|
+| **Chrome** / Chromium | `chrome://extensions` → **Show Country** → **Details** → **Extension options** (or the gear / “Extension options” entry, depending on version). |
+| **Firefox** | `about:addons` → **Show Country** → **⋯** / preferences → opens `options.html`. |
+
+**Configured request shape (only this variant is implemented):** `GET {base URL}/{resolved public IP}` — for example base `http://geoip.tma` becomes `http://geoip.tma/8.8.8.8`. If your upstream expects a path prefix (e.g. `/v1/ip`), include it in the base URL, e.g. `http://geoip.tma/v1/ip` → `http://geoip.tma/v1/ip/8.8.8.8`.
+
+**JSON:** The response must be JSON the extension can map to a country, either:
+
+- A thin object: `{ "country": "…", "countryCode": "DE" }` (`countryCode` must be a two-letter ISO code), or  
+- A [cloud66-oss/geo](https://github.com/cloud66-oss/geo)-style object with `country.iso_code` and optional `country.names` (e.g. `names.en`).
+
+**Behaviour:** If a base URL is saved, the service worker tries your endpoint first (short timeout). On failure (network, timeout, HTTP error, or unrecognised JSON), it falls back to the **same public geo providers** as before. After a failed homelab attempt, homelab is **skipped for about 5 minutes** (persisted in `storage`) so every page load does not wait on the homelab timeout; homelab is tried again after that window. A successful homelab response clears that backoff.
+
+**Permissions:** Saving a non-empty URL triggers a **host permission** prompt for that origin (via `optional_host_permissions` patterns `http://*/*` and `https://*/*`). Clearing the field removes the stored URL and backoff state (it does not revoke already granted origins).
+
+**Self-hosted data licensing:** If your backend uses **MaxMind GeoLite2** or similar databases, you are responsible for **license compliance** (for example GeoLite2 **CC BY-SA 4.0** attribution and redistribution rules). This repository does not ship MMDB files.
 
 ## Install from source
 
@@ -51,7 +73,7 @@ Release tags use **`v{version}-build.{run_number}`** so repeated pushes do not c
 |--------|--------|
 | **“Corrupt”** when using **Install Add-on From File** on the `.zip` | Normal **release** Firefox requires **AMO-signed** packages for that entry point. Use **temporary add-on** (above), **Developer Edition** with signing disabled for local use, or [sign the XPI](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/). |
 | **Cannot select the folder** in **Load Temporary Add-on** | The picker wants a **file** — choose **`manifest.json`** inside the extracted folder. |
-| **“Corrupt”** even for temporary load (older builds) | Firefox MV3 does **not** use Chrome’s `background.service_worker` alone; this repo’s Firefox manifest uses **`background.scripts`** so the add-on validates. Use the latest **`show-country-firefox-…zip`**. |
+| **“Corrupt”** even for temporary load (older builds) | Firefox MV3 does **not** use Chrome’s `background.service_worker` alone; this repo’s Firefox manifest uses **`background.scripts`** so the add-on validates. Use the latest **`show-country-firefox-…zip`**. Versions of **Firefox below 128** are not supported for this package because **`optional_host_permissions`** (self-hosted geo URL) requires newer Firefox. |
 | **“Has not been verified”** (unsigned add-on) | You are using **Add-ons → Install Add-on From File** (or similar) with an **unsigned** package. That path requires a **Mozilla-signed** `.xpi`. Use **`about:debugging` → Load Temporary Add-on… → `manifest.json`**, download the **`show-country-firefox-signed-…xpi`** from [Releases](https://github.com/smallouki/countryfinder/releases) after [AMO signing is configured](docs/MOZILLA_SIGNING.md), or sign yourself via AMO. |
 
 ### LibreWolf (and similar Firefox forks)
@@ -66,6 +88,8 @@ Release tags use **`v{version}-build.{run_number}`** so repeated pushes do not c
 | Permission / access | Why |
 |---------------------|-----|
 | **Host permissions** (in each manifest) | Allow the service worker to call DoH and geolocation endpoints and to load flag images. |
+| **`storage`** | Save the optional custom geo base URL and homelab retry/backoff timestamps. |
+| **`optional_host_permissions`** (`http://*/*`, `https://*/*`) | Allow granting **only the origins you configure** in options (self-hosted geo). Nothing is prefetched automatically beyond your saved URL. |
 | **Content scripts** on `<all_urls>` | Inject the small overlay on normal web pages. |
 
 The extension does **not** read passwords, form data, or browsing history. Network requests are limited to resolving the **current tab’s document hostname** and the resulting **IP** for display.
@@ -77,7 +101,7 @@ When a page is loaded, the extension may send:
 - The **hostname** (and DNS query type) to **DNS-over-HTTPS** providers.
 - The **resolved IP address** to **IP geolocation** services.
 
-Those requests are made by the extension’s **service worker**, not by the web page. No separate analytics or telemetry are implemented in this repository; any logging depends on the browser and OS.
+If you configure a **custom geo base URL** in options, the **resolved public IP** is also sent to **that** origin (first), using `GET {your base}/{ip}` as documented above. Those requests are made by the extension’s **service worker**, not by the web page. No separate analytics or telemetry are implemented in this repository; any logging depends on the browser and OS.
 
 ### Third-party endpoints (manifest host permissions)
 
