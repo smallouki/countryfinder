@@ -252,27 +252,92 @@
   }
 
   /**
-   * @param {string} baseUrl trimmed base without trailing slash
-   * @param {string} ip
+   * @param {string} urlString full URL
    * @param {number} timeoutMs
+   * @returns {Promise<any>}
    */
-  async function lookupGeoHomelab(baseUrl, ip, timeoutMs) {
-    const base = baseUrl.replace(/\/+$/, "");
-    const url = `${base}/${encodeURIComponent(ip)}`;
+  async function fetchHomelabJson(urlString, timeoutMs) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const res = await fetch(url, {
+      const res = await fetch(urlString, {
         signal: ctrl.signal,
         headers: { Accept: "application/json" },
       });
       if (!res.ok) {
         throw new Error(`Geo lookup failed (${res.status})`);
       }
-      const data = await res.json();
-      return parseCustomGeoJson(data);
+      return await res.json();
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Homelab GET. On Firefox, fetch() may fail to resolve internal hostnames even when
+   * browser.dns.resolve (disable_trr) succeeds — different resolver path. For http: bases,
+   * retry once using the IPv4/IPv6 from browser.dns.resolve (cannot set Host header in fetch).
+   * @param {string} baseUrl trimmed base without trailing slash
+   * @param {string} ip
+   * @param {number} timeoutMs
+   */
+  async function lookupGeoHomelab(baseUrl, ip, timeoutMs) {
+    const base = baseUrl.replace(/\/+$/, "");
+    const urlByName = `${base}/${encodeURIComponent(ip)}`;
+
+    const run = async (urlStr) => parseCustomGeoJson(await fetchHomelabJson(urlStr, timeoutMs));
+
+    try {
+      return await run(urlByName);
+    } catch (firstErr) {
+      if (!isFirefoxDnsApiAvailable()) throw firstErr;
+      let u;
+      try {
+        u = new URL(urlByName);
+      } catch {
+        throw firstErr;
+      }
+      if (u.protocol !== "http:") throw firstErr;
+
+      const root = typeof self !== "undefined" ? self : globalThis;
+      let rec;
+      try {
+        rec = await root.browser.dns.resolve(u.hostname, ["disable_trr", "bypass_cache"]);
+      } catch {
+        throw firstErr;
+      }
+      const addrs = Array.isArray(rec?.addresses) ? rec.addresses : [];
+      let v4 = null;
+      for (const raw of addrs) {
+        const a = String(raw || "")
+          .split("%")[0]
+          .replace(/^\[|\]$/g, "")
+          .trim();
+        if (IPV4_RE.test(a)) {
+          v4 = a;
+          break;
+        }
+      }
+      if (v4) {
+        const urlByIp = `http://${v4}${u.pathname}${u.search}`;
+        return await run(urlByIp);
+      }
+      let v6 = null;
+      for (const raw of addrs) {
+        const a = String(raw || "")
+          .split("%")[0]
+          .replace(/^\[|\]$/g, "")
+          .trim();
+        if (a.includes(":")) {
+          v6 = a.split("%")[0];
+          break;
+        }
+      }
+      if (v6) {
+        const urlByIp = `http://[${v6}]${u.pathname}${u.search}`;
+        return await run(urlByIp);
+      }
+      throw firstErr;
     }
   }
 

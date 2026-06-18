@@ -11,7 +11,7 @@ Minimal **Chrome** and **Firefox** extension (Manifest V3): resolves the **top-l
 | **Chrome** / Chromium | Current stable channel practices (MV3) | [`manifest.json`](manifest.json) |
 | **Firefox** | **128.0** (MV3; `dns` + `optional_host_permissions`; background uses **`scripts`**, not `service_worker`) | [`manifest-firefox.json`](manifest-firefox.json) — same logic as Chrome; Gecko id for signing/temporary install. |
 
-The same `service_worker.js`, `resolve_core.js`, `content/`, `options.html`, `options.js`, `options.css`, and `icons/` are used for both; only the manifest differs.
+The same `service_worker.js`, **`resolve_core.js`** (shared hostname→IP + geo logic for both engines), `content/`, `options.html`, `options.js`, `options.css`, and `icons/` are used for both; only the manifest differs. On Firefox, hostname resolution uses **`browser.dns.resolve`** inside `resolve_core.js`; Chrome still uses the DoH helpers in that file — there is no separate “Firefox-only” script.
 
 ## Extension options (optional self-hosted geo)
 
@@ -33,7 +33,7 @@ You can point the extension at a **small HTTP(S) service** you control (for exam
 
 **Permissions:** Saving a non-empty URL triggers a **host permission** prompt for that origin (via `optional_host_permissions` patterns `http://*/*` and `https://*/*`). Clearing the field removes the stored URL and backoff state (it does not revoke already granted origins).
 
-**Troubleshooting:** If the Network tab of the **service worker** still shows only public geo hosts (e.g. reallyfreegeoip) after saving your base URL: (1) confirm the host permission was **allowed** when saving; (2) if homelab failed once, wait **~5 minutes** or clear the URL and save again to reset backoff; (3) reload the extension or revisit the page — the in-memory cache is keyed by your saved base URL and cleared when options change, so you should see `GET` to your host for **public** (non-RFC1918) resolved IPs.
+**Troubleshooting:** If the Network tab of the **service worker** still shows only public geo hosts (e.g. reallyfreegeoip) after saving your base URL: (1) confirm the host permission was **allowed** when saving; (2) if homelab failed once, wait **~5 minutes** or clear the URL and save again to reset backoff; (3) reload the extension or revisit the page — the in-memory cache is keyed by your saved base URL and cleared when options change, so you should see `GET` to your host for **public** (non-RFC1918) resolved IPs. **Firefox / LibreWolf:** internal names (e.g. `geoip.tma`) sometimes resolve with `browser.dns.resolve` but fail on plain `fetch` to the hostname; the extension retries the homelab request using the **resolved IP** for `http:` bases only (no custom `Host` header — use a single-vhost backend or put the **literal IP** in options if your server requires the name in `Host:`).
 
 **Self-hosted data licensing:** If your backend uses **MaxMind GeoLite2** or similar databases, you are responsible for **license compliance** (for example GeoLite2 **CC BY-SA 4.0** attribution and redistribution rules). This repository does not ship MMDB files.
 
