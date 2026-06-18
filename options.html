@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Show Country — Options</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>Show Country</h1>
+      <p class="lead">
+        Optional self-hosted geo lookup (e.g.
+        <a href="https://github.com/cloud66-oss/geo" target="_blank" rel="noopener">cloud66-oss/geo</a> behind your
+        own URL). The extension calls <code>GET {base URL}/{resolved IP}</code> and expects JSON with either
+        <code>country</code>/<code>countryCode</code> or a <code>country.iso_code</code> object (see README).
+      </p>
+
+      <form id="form" class="card">
+        <label class="label" for="baseUrl">Custom geo base URL</label>
+        <input
+          id="baseUrl"
+          name="baseUrl"
+          type="url"
+          inputmode="url"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="http://geoip.tma or http://geoip.tma/v1/ip"
+        />
+        <p class="hint">
+          No trailing slash. Examples: <code>http://geoip.tma</code> → request
+          <code>http://geoip.tma/8.8.8.8</code>; with a path prefix use
+          <code>http://geoip.tma/v1/ip</code> → <code>…/v1/ip/8.8.8.8</code>.
+        </p>
+        <div class="actions">
+          <button type="submit" class="btn primary">Save</button>
+          <button type="button" class="btn" id="clear">Clear</button>
+        </div>
+      </form>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
