@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Show Country",
-  "version": "1.2.11",
+  "version": "1.3.0",
   "description": "Resolves the page host to an IP, shows country via geolocation, and displays a bottom flag overlay (IP and country on hover).",
   "browser_specific_settings": {
     "gecko": {
@@ -32,6 +32,7 @@
   },
   "host_permissions": [
     "http://*/*",
+    "https://reallyfreegeoip.org/*",
     "https://ipinfo.io/*",
     "https://ipwho.is/*",
     "https://ipapi.co/*",

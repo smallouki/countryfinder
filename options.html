@@ -12,29 +12,80 @@
       <p class="lead">
         Optional self-hosted geo lookup (e.g.
         <a href="https://github.com/cloud66-oss/geo" target="_blank" rel="noopener">cloud66-oss/geo</a> behind your
-        own URL). The extension calls <code>GET {base URL}/{resolved IP}</code> and expects JSON with either
-        <code>country</code>/<code>countryCode</code> or a <code>country.iso_code</code> object (see README).
+        own URL). When a custom base URL is saved, the extension uses <strong>only</strong>
+        <code>GET {base URL}/{resolved IP}</code> for country (no public providers). Clear that field to use the
+        public providers you enable below. JSON: either <code>country</code>/<code>countryCode</code> or a
+        <code>country.iso_code</code> object (see README).
       </p>
 
-      <form id="form" class="card">
-        <label class="label" for="baseUrl">Custom geo base URL</label>
-        <input
-          id="baseUrl"
-          name="baseUrl"
-          type="url"
-          inputmode="url"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="http://geoip.tma or http://geoip.tma/v1/ip"
-        />
-        <p class="hint">
-          No trailing slash. Examples: <code>http://geoip.tma</code> → request
-          <code>http://geoip.tma/8.8.8.8</code>; with a path prefix use
-          <code>http://geoip.tma/v1/ip</code> → <code>…/v1/ip/8.8.8.8</code>.
-        </p>
+      <form id="form" class="stack">
+        <section class="card">
+          <label class="label" for="baseUrl">Custom geo base URL</label>
+          <input
+            id="baseUrl"
+            name="baseUrl"
+            type="url"
+            inputmode="url"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="http://geoip.tma or http://geoip.tma/v1/ip"
+          />
+          <p class="hint">
+            No trailing slash. Examples: <code>http://geoip.tma</code> → request
+            <code>http://geoip.tma/8.8.8.8</code>; with a path prefix use
+            <code>http://geoip.tma/v1/ip</code> → <code>…/v1/ip/8.8.8.8</code>.
+          </p>
+        </section>
+
+        <fieldset class="card fieldset">
+          <legend class="legend">Public geo providers</legend>
+          <p class="hint legend-hint">
+            Used <strong>only when the custom URL above is empty</strong>. Order is fixed; the extension tries each
+            checked provider until one succeeds. At least one must be checked.
+          </p>
+          <ul class="provider-list">
+            <li>
+              <label class="check-row"
+                ><input type="checkbox" id="provider_ipwho" name="provider" value="ipwho" checked />
+                ipwho.is</label
+              >
+            </li>
+            <li>
+              <label class="check-row"
+                ><input type="checkbox" id="provider_ipinfo" name="provider" value="ipinfo" checked />
+                ipinfo.io</label
+              >
+            </li>
+            <li>
+              <label class="check-row"
+                ><input type="checkbox" id="provider_ipapi" name="provider" value="ipapi" checked />
+                ipapi.co</label
+              >
+            </li>
+            <li>
+              <label class="check-row"
+                ><input type="checkbox" id="provider_geojs" name="provider" value="geojs" checked />
+                get.geojs.io (GeoJS)</label
+              >
+            </li>
+            <li>
+              <label class="check-row"
+                ><input type="checkbox" id="provider_reallyfree" name="provider" value="reallyfree" checked />
+                reallyfreegeoip.org</label
+              >
+            </li>
+            <li>
+              <label class="check-row"
+                ><input type="checkbox" id="provider_ipapi_http" name="provider" value="ipapi_http" checked />
+                ip-api.com (HTTP)</label
+              >
+            </li>
+          </ul>
+        </fieldset>
+
         <div class="actions">
           <button type="submit" class="btn primary">Save</button>
-          <button type="button" class="btn" id="clear">Clear</button>
+          <button type="button" class="btn" id="clear">Clear custom URL</button>
         </div>
       </form>
 

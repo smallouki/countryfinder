@@ -9,6 +9,7 @@
 
   const GEO_IPINFO = "https://ipinfo.io";
   const GEO_IPWHO = "https://ipwho.is";
+  const GEO_REALLY_FREE = "https://reallyfreegeoip.org/json";
   const GEO_IPAPI = "https://ipapi.co";
   const GEO_GEOJS = "https://get.geojs.io/v1/ip/geo";
   const GEO_IPAPI_HTTP = "http://ip-api.com/json";
@@ -288,7 +289,7 @@
   /**
    * Homelab GET using only the configured URL (`{base}/{ip}`). Never rewrites the host to a
    * resolved IP: Kubernetes ingress and TLS need the original hostname (SNI / Host); `fetch`
-   * cannot set `Host` manually. If the request fails, callers fall back to public geo APIs.
+   * cannot set `Host` manually. If the request fails, the caller shows Unknown (no public APIs when homelab URL is set).
    * @param {string} baseUrl trimmed base without trailing slash
    * @param {string} ip
    * @param {number} timeoutMs
@@ -299,14 +300,38 @@
     return parseCustomGeoJson(await fetchHomelabJson(urlByName, timeoutMs));
   }
 
+  /** Fixed order when chaining public providers (subset chosen in options when no homelab URL). */
+  const PUBLIC_GEO_PROVIDER_ORDER = Object.freeze([
+    "ipwho",
+    "ipinfo",
+    "ipapi",
+    "geojs",
+    "reallyfree",
+    "ipapi_http",
+  ]);
+
   /**
-   * Public geo API chain (existing providers).
-   * @param {string} ip
+   * @param {unknown} raw
+   * @returns {string[]}
    */
-  async function lookupGeoPublic(ip) {
-    // Several providers in sequence; Pi-hole or firewalls may block individual hosts.
-    const lookups = [
-      async () => {
+  function normalizePublicGeoProviderIds(raw) {
+    const order = /** @type {string[]} */ (PUBLIC_GEO_PROVIDER_ORDER.slice());
+    if (!Array.isArray(raw) || raw.length === 0) return order;
+    const picked = order.filter((id) => raw.includes(id));
+    return picked.length > 0 ? picked : order;
+  }
+
+  /**
+   * Public geo APIs (only when no custom homelab URL is configured).
+   * @param {string} ip
+   * @param {string[] | undefined} enabledIds ids in `PUBLIC_GEO_PROVIDER_ORDER`; missing/empty ⇒ all
+   */
+  async function lookupGeoPublic(ip, enabledIds) {
+    const order = normalizePublicGeoProviderIds(enabledIds);
+
+    /** @type {Record<string, () => Promise<{ country: string, countryCode: string }>>} */
+    const byId = {
+      ipwho: async () => {
         const res = await fetch(`${GEO_IPWHO}/${encodeURIComponent(ip)}`, {
           headers: {
             Accept: "application/json",
@@ -323,7 +348,7 @@
           typeof data.country_code === "string" ? data.country_code.toUpperCase() : "";
         return { country, countryCode };
       },
-      async () => {
+      ipinfo: async () => {
         const res = await fetch(`${GEO_IPINFO}/${encodeURIComponent(ip)}/json`, {
           headers: { Accept: "application/json" },
         });
@@ -339,7 +364,7 @@
           countryCode,
         };
       },
-      async () => {
+      ipapi: async () => {
         const res = await fetch(`${GEO_IPAPI}/${encodeURIComponent(ip)}/json/`, {
           headers: { Accept: "application/json" },
         });
@@ -358,7 +383,7 @@
           typeof data.country_code === "string" ? data.country_code.toUpperCase() : "";
         return { country, countryCode };
       },
-      async () => {
+      geojs: async () => {
         const res = await fetch(`${GEO_GEOJS}/${encodeURIComponent(ip)}.json`, {
           headers: { Accept: "application/json" },
         });
@@ -372,7 +397,24 @@
         }
         return { country, countryCode };
       },
-      async () => {
+      reallyfree: async () => {
+        const res = await fetch(`${GEO_REALLY_FREE}/${encodeURIComponent(ip)}`, {
+          headers: { Accept: "application/json" },
+        });
+        if (!res.ok) throw new Error(`Geo lookup failed (${res.status})`);
+        const data = await res.json();
+        const country =
+          typeof data.country_name === "string"
+            ? data.country_name
+            : typeof data.country === "string"
+              ? data.country
+              : "";
+        const countryCode =
+          typeof data.country_code === "string" ? data.country_code.toUpperCase() : "";
+        if (!country && !countryCode) throw new Error("Geo lookup unsuccessful");
+        return { country, countryCode };
+      },
+      ipapi_http: async () => {
         const url = new URL(GEO_IPAPI_HTTP);
         url.pathname += `/${encodeURIComponent(ip)}`;
         url.searchParams.set("fields", "status,message,country,countryCode");
@@ -389,7 +431,13 @@
           typeof data.countryCode === "string" ? data.countryCode.toUpperCase() : "";
         return { country, countryCode };
       },
-    ];
+    };
+
+    const lookups = order.map((id) => {
+      const fn = byId[id];
+      if (!fn) throw new Error(`Unknown geo provider: ${id}`);
+      return fn;
+    });
 
     let lastErr = null;
     for (const fn of lookups) {
@@ -403,8 +451,10 @@
   }
 
   /**
+   * When a custom base URL is set: **only** that homelab endpoint is used for country lookup
+   * (no public fallbacks). Otherwise uses `lookupGeoPublic` with `enabledPublicGeoProviders`.
    * @param {string} ip
-   * @param {{ customGeoBaseUrl?: string, homelabNextTryAt?: number } | undefined} homelabOpts
+   * @param {{ customGeoBaseUrl?: string, homelabNextTryAt?: number, enabledPublicGeoProviders?: string[] } | undefined} homelabOpts
    * @returns {Promise<{ country: string, countryCode: string, _homelabState: 'none'|'skipped'|'success'|'fail_after_attempt' }>}
    */
   async function lookupGeoWithOptionalHomelab(ip, homelabOpts) {
@@ -414,19 +464,27 @@
       typeof opts.homelabNextTryAt === "number" && opts.homelabNextTryAt > Date.now();
 
     if (!base) {
-      const geo = await lookupGeoPublic(ip);
+      const geo = await lookupGeoPublic(ip, opts.enabledPublicGeoProviders);
       return { ...geo, _homelabState: /** @type {const} */ ("none") };
     }
+
     if (skip) {
-      const geo = await lookupGeoPublic(ip);
-      return { ...geo, _homelabState: /** @type {const} */ ("skipped") };
+      return {
+        country: "Unknown",
+        countryCode: "",
+        _homelabState: /** @type {const} */ ("skipped"),
+      };
     }
+
     try {
       const geo = await lookupGeoHomelab(base, ip, HOMELAB_FETCH_TIMEOUT_MS);
       return { ...geo, _homelabState: /** @type {const} */ ("success") };
     } catch {
-      const geo = await lookupGeoPublic(ip);
-      return { ...geo, _homelabState: /** @type {const} */ ("fail_after_attempt") };
+      return {
+        country: "Unknown",
+        countryCode: "",
+        _homelabState: /** @type {const} */ ("fail_after_attempt"),
+      };
     }
   }
 
@@ -439,7 +497,7 @@
   /**
    * @param {string} hostname
    * @param {string} [protocol]
-   * @param {{ customGeoBaseUrl?: string, homelabNextTryAt?: number } | undefined} [homelabOpts]
+   * @param {{ customGeoBaseUrl?: string, homelabNextTryAt?: number, enabledPublicGeoProviders?: string[] } | undefined} [homelabOpts]
    */
   async function resolveServerMetaUncached(hostname, protocol, homelabOpts) {
     const hostRaw = (hostname || "").trim();
@@ -505,4 +563,6 @@
 
   const g = typeof self !== "undefined" ? self : globalThis;
   g.resolveServerMetaUncached = resolveServerMetaUncached;
+  g.normalizePublicGeoProviderIds = normalizePublicGeoProviderIds;
+  g.PUBLIC_GEO_PROVIDER_ORDER = PUBLIC_GEO_PROVIDER_ORDER;
 })();

@@ -6,6 +6,17 @@
 
   const STORAGE_CUSTOM_GEO_BASE_URL = "customGeoBaseUrl";
   const STORAGE_HOMELAB_GEO = "homelabGeo";
+  const STORAGE_ENABLED_PUBLIC_GEO = "enabledPublicGeoProviders";
+
+  /** @type {readonly { id: string, label: string }[]} */
+  const PUBLIC_GEO_PROVIDERS = Object.freeze([
+    { id: "ipwho", label: "ipwho.is" },
+    { id: "ipinfo", label: "ipinfo.io" },
+    { id: "ipapi", label: "ipapi.co" },
+    { id: "geojs", label: "get.geojs.io (GeoJS)" },
+    { id: "reallyfree", label: "reallyfreegeoip.org" },
+    { id: "ipapi_http", label: "ip-api.com (HTTP)" },
+  ]);
 
   const form = document.getElementById("form");
   const input = /** @type {HTMLInputElement} */ (document.getElementById("baseUrl"));
@@ -64,25 +75,68 @@
     }
   }
 
+  function readSelectedProviderIds() {
+    return PUBLIC_GEO_PROVIDERS.map((p) => p.id).filter((id) => {
+      const el = /** @type {HTMLInputElement | null} */ (document.getElementById(`provider_${id}`));
+      return el?.checked;
+    });
+  }
+
+  function applyDefaultProviderChecks() {
+    for (const p of PUBLIC_GEO_PROVIDERS) {
+      const el = /** @type {HTMLInputElement | null} */ (document.getElementById(`provider_${p.id}`));
+      if (el) el.checked = true;
+    }
+  }
+
   async function load() {
     if (!runtime?.storage?.local) return;
-    const data = await runtime.storage.local.get(STORAGE_CUSTOM_GEO_BASE_URL);
-    input.value = typeof data[STORAGE_CUSTOM_GEO_BASE_URL] === "string" ? data[STORAGE_CUSTOM_GEO_BASE_URL] : "";
+    const data = await runtime.storage.local.get([
+      STORAGE_CUSTOM_GEO_BASE_URL,
+      STORAGE_ENABLED_PUBLIC_GEO,
+    ]);
+    input.value =
+      typeof data[STORAGE_CUSTOM_GEO_BASE_URL] === "string" ? data[STORAGE_CUSTOM_GEO_BASE_URL] : "";
+
+    const saved = data[STORAGE_ENABLED_PUBLIC_GEO];
+    const allowed = new Set(PUBLIC_GEO_PROVIDERS.map((p) => p.id));
+    if (Array.isArray(saved) && saved.length > 0) {
+      const picked = new Set(saved.filter((x) => typeof x === "string" && allowed.has(x)));
+      for (const p of PUBLIC_GEO_PROVIDERS) {
+        const el = /** @type {HTMLInputElement | null} */ (document.getElementById(`provider_${p.id}`));
+        if (el) el.checked = picked.has(p.id);
+      }
+      if (picked.size === 0) applyDefaultProviderChecks();
+    } else {
+      applyDefaultProviderChecks();
+    }
   }
 
   form?.addEventListener("submit", async (e) => {
     e.preventDefault();
     setStatus("Saving…");
     try {
+      const enabled = readSelectedProviderIds();
+      if (enabled.length === 0) {
+        throw new Error("Select at least one public geo provider (used only when no custom URL is set).");
+      }
+
       const normalized = normalizeBaseUrl(input.value);
       if (normalized) {
         await ensureHostPermission(normalized);
-        await runtime.storage.local.set({ [STORAGE_CUSTOM_GEO_BASE_URL]: normalized });
+        await runtime.storage.local.set({
+          [STORAGE_CUSTOM_GEO_BASE_URL]: normalized,
+          [STORAGE_ENABLED_PUBLIC_GEO]: enabled,
+        });
         await runtime.storage.local.remove(STORAGE_HOMELAB_GEO);
-        setStatus("Saved. Homelab geo will be tried first (with fallback to public APIs).", "ok");
+        setStatus(
+          "Saved. Only your custom URL is used for country lookup; public geo APIs are disabled until you clear the URL.",
+          "ok"
+        );
       } else {
         await runtime.storage.local.remove([STORAGE_CUSTOM_GEO_BASE_URL, STORAGE_HOMELAB_GEO]);
-        setStatus("Cleared custom geo URL and homelab backoff state.", "ok");
+        await runtime.storage.local.set({ [STORAGE_ENABLED_PUBLIC_GEO]: enabled });
+        setStatus("Saved. Public provider selection applies when no custom URL is set.", "ok");
       }
     } catch (err) {
       setStatus(err instanceof Error ? err.message : String(err), "error");

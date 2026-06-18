@@ -14,6 +14,7 @@ const API_API = getApiContext();
 
 const STORAGE_CUSTOM_GEO_BASE_URL = "customGeoBaseUrl";
 const STORAGE_HOMELAB_GEO = "homelabGeo";
+const STORAGE_ENABLED_PUBLIC_GEO = "enabledPublicGeoProviders";
 const HOMELAB_BACKOFF_MS = 5 * 60 * 1000;
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
@@ -45,16 +46,24 @@ function runResolveExclusive(fn) {
 /** @typedef {{ ok: false, error: string }} ServerMetaErr */
 
 /**
- * @returns {Promise<{ customGeoBaseUrl: string, homelabNextTryAt: number }>}
+ * @returns {Promise<{ customGeoBaseUrl: string, homelabNextTryAt: number, enabledPublicGeoProviders: string[] }>}
  */
 async function loadHomelabOpts() {
-  const data = await API_API.storage.local.get([STORAGE_CUSTOM_GEO_BASE_URL, STORAGE_HOMELAB_GEO]);
+  const data = await API_API.storage.local.get([
+    STORAGE_CUSTOM_GEO_BASE_URL,
+    STORAGE_HOMELAB_GEO,
+    STORAGE_ENABLED_PUBLIC_GEO,
+  ]);
   const customGeoBaseUrl =
     typeof data[STORAGE_CUSTOM_GEO_BASE_URL] === "string" ? data[STORAGE_CUSTOM_GEO_BASE_URL] : "";
   const raw = data[STORAGE_HOMELAB_GEO];
   const homelabNextTryAt =
     raw && typeof raw === "object" && typeof raw.nextTryAt === "number" ? raw.nextTryAt : 0;
-  return { customGeoBaseUrl, homelabNextTryAt };
+  const rawProviders = data[STORAGE_ENABLED_PUBLIC_GEO];
+  const enabledPublicGeoProviders = Array.isArray(rawProviders)
+    ? rawProviders.filter((x) => typeof x === "string")
+    : [];
+  return { customGeoBaseUrl, homelabNextTryAt, enabledPublicGeoProviders };
 }
 
 /**
@@ -80,10 +89,10 @@ async function resolveServerMeta(hostname, protocol) {
     const hostRaw = (hostname || "").trim();
     const host = hostRaw.toLowerCase();
     const homelabOpts = await loadHomelabOpts();
-    // Include custom geo base in the key so changing options does not reuse a stale
-    // 15-minute entry that was resolved only via public APIs before homelab was configured.
-    const homelabKeyPart = homelabOpts.customGeoBaseUrl ? `|${homelabOpts.customGeoBaseUrl}` : "";
-    const cacheKey = `${protocol || ""}|${host}${homelabKeyPart}`;
+    const geoKeySuffix = homelabOpts.customGeoBaseUrl
+      ? homelabOpts.customGeoBaseUrl
+      : `p:${self.normalizePublicGeoProviderIds(homelabOpts.enabledPublicGeoProviders).join(",")}`;
+    const cacheKey = `${protocol || ""}|${host}|${geoKeySuffix}`;
 
     const hit = cache.get(cacheKey);
     if (hit && hit.expires > Date.now()) {
@@ -127,7 +136,11 @@ if (API_API?.runtime?.onMessage) {
 if (API_API?.storage?.onChanged) {
   API_API.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (changes[STORAGE_CUSTOM_GEO_BASE_URL] || changes[STORAGE_HOMELAB_GEO]) {
+    if (
+      changes[STORAGE_CUSTOM_GEO_BASE_URL] ||
+      changes[STORAGE_HOMELAB_GEO] ||
+      changes[STORAGE_ENABLED_PUBLIC_GEO]
+    ) {
       cache.clear();
     }
   });
