@@ -7,7 +7,6 @@
   const DOH_CF = "https://cloudflare-dns.com/dns-query";
   const DOH_1111 = "https://1.1.1.1/dns-query";
 
-  const GEO_REALLY_FREE = "https://reallyfreegeoip.org/json";
   const GEO_IPINFO = "https://ipinfo.io";
   const GEO_IPWHO = "https://ipwho.is";
   const GEO_IPAPI = "https://ipapi.co";
@@ -375,7 +374,7 @@
    * @param {string} ip
    */
   async function lookupGeoPublic(ip) {
-    // Try providers that are less often blocked (e.g. Pi-hole lists) before reallyfreegeoip.org.
+    // Several providers in sequence; Pi-hole or firewalls may block individual hosts.
     const lookups = [
       async () => {
         const res = await fetch(`${GEO_IPWHO}/${encodeURIComponent(ip)}`, {
@@ -441,23 +440,6 @@
         if (!country && !countryCode) {
           throw new Error("Geo lookup unsuccessful");
         }
-        return { country, countryCode };
-      },
-      async () => {
-        const res = await fetch(`${GEO_REALLY_FREE}/${encodeURIComponent(ip)}`, {
-          headers: { Accept: "application/json" },
-        });
-        if (!res.ok) throw new Error(`Geo lookup failed (${res.status})`);
-        const data = await res.json();
-        const country =
-          typeof data.country_name === "string"
-            ? data.country_name
-            : typeof data.country === "string"
-              ? data.country
-              : "";
-        const countryCode =
-          typeof data.country_code === "string" ? data.country_code.toUpperCase() : "";
-        if (!country && !countryCode) throw new Error("Geo lookup unsuccessful");
         return { country, countryCode };
       },
       async () => {
