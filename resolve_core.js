@@ -313,10 +313,10 @@
   }
 
   /**
-   * Homelab GET. On Firefox, `fetch` to a hostname can fail DNS even when `browser.dns.resolve`
-   * works (split-horizon / internal zones). We resolve with `browser.dns` first and call `http://IP/…`
-   * so the request origin matches host_permissions (Firefox manifest includes a wildcard http pattern for literal IPs).
-   * Falls back to the configured hostname URL. HTTPS homelab is hostname-only (no IP literal retry).
+   * Homelab GET. Prefer the configured hostname in the URL so TLS SNI and the HTTP Host header match
+   * ingress / virtual-host routing (a literal IP URL cannot do that; `fetch` cannot override Host).
+   * On Firefox, if `fetch` to the hostname still fails while `browser.dns.resolve` works (split-horizon),
+   * fall back to `http://IP/…` only for **http:** bases — that fallback may break vHost-only clusters.
    * @param {string} baseUrl trimmed base without trailing slash
    * @param {string} ip
    * @param {number} timeoutMs
@@ -334,8 +334,17 @@
       return await run(urlByName);
     }
 
-    const dns = getFirefoxDns();
-    if (dns && u.protocol === "http:") {
+    if (isLiteralIp(u.hostname)) {
+      return await run(urlByName);
+    }
+
+    try {
+      return await run(urlByName);
+    } catch (firstErr) {
+      const dns = getFirefoxDns();
+      if (!dns || u.protocol !== "http:") {
+        throw firstErr instanceof Error ? firstErr : new Error(String(firstErr));
+      }
       try {
         const rec = await dns.resolve(u.hostname, ["disable_trr", "bypass_cache"]);
         const { v4, v6 } = pickV4V6FromDnsAddresses(rec?.addresses);
@@ -343,7 +352,7 @@
           try {
             return await run(`http://${v4}${u.pathname}${u.search}`);
           } catch {
-            /* e.g. vHost needs Host: name — try hostname fetch below */
+            /* */
           }
         }
         if (v6) {
@@ -355,11 +364,10 @@
           }
         }
       } catch {
-        /* dns.resolve failed — try hostname */
+        /* dns.resolve failed */
       }
+      throw firstErr instanceof Error ? firstErr : new Error(String(firstErr));
     }
-
-    return await run(urlByName);
   }
 
   /**
@@ -367,22 +375,23 @@
    * @param {string} ip
    */
   async function lookupGeoPublic(ip) {
+    // Try providers that are less often blocked (e.g. Pi-hole lists) before reallyfreegeoip.org.
     const lookups = [
       async () => {
-        const res = await fetch(`${GEO_REALLY_FREE}/${encodeURIComponent(ip)}`, {
-          headers: { Accept: "application/json" },
+        const res = await fetch(`${GEO_IPWHO}/${encodeURIComponent(ip)}`, {
+          headers: {
+            Accept: "application/json",
+            Referer: "https://ipwho.is/",
+          },
         });
         if (!res.ok) throw new Error(`Geo lookup failed (${res.status})`);
         const data = await res.json();
-        const country =
-          typeof data.country_name === "string"
-            ? data.country_name
-            : typeof data.country === "string"
-              ? data.country
-              : "";
+        if (!data.success) {
+          throw new Error(data.message || "Geo lookup unsuccessful");
+        }
+        const country = typeof data.country === "string" ? data.country : "";
         const countryCode =
           typeof data.country_code === "string" ? data.country_code.toUpperCase() : "";
-        if (!country && !countryCode) throw new Error("Geo lookup unsuccessful");
         return { country, countryCode };
       },
       async () => {
@@ -400,23 +409,6 @@
           country: regionDisplayName(countryCode) || countryCode,
           countryCode,
         };
-      },
-      async () => {
-        const res = await fetch(`${GEO_IPWHO}/${encodeURIComponent(ip)}`, {
-          headers: {
-            Accept: "application/json",
-            Referer: "https://ipwho.is/",
-          },
-        });
-        if (!res.ok) throw new Error(`Geo lookup failed (${res.status})`);
-        const data = await res.json();
-        if (!data.success) {
-          throw new Error(data.message || "Geo lookup unsuccessful");
-        }
-        const country = typeof data.country === "string" ? data.country : "";
-        const countryCode =
-          typeof data.country_code === "string" ? data.country_code.toUpperCase() : "";
-        return { country, countryCode };
       },
       async () => {
         const res = await fetch(`${GEO_IPAPI}/${encodeURIComponent(ip)}/json/`, {
@@ -449,6 +441,23 @@
         if (!country && !countryCode) {
           throw new Error("Geo lookup unsuccessful");
         }
+        return { country, countryCode };
+      },
+      async () => {
+        const res = await fetch(`${GEO_REALLY_FREE}/${encodeURIComponent(ip)}`, {
+          headers: { Accept: "application/json" },
+        });
+        if (!res.ok) throw new Error(`Geo lookup failed (${res.status})`);
+        const data = await res.json();
+        const country =
+          typeof data.country_name === "string"
+            ? data.country_name
+            : typeof data.country === "string"
+              ? data.country
+              : "";
+        const countryCode =
+          typeof data.country_code === "string" ? data.country_code.toUpperCase() : "";
+        if (!country && !countryCode) throw new Error("Geo lookup unsuccessful");
         return { country, countryCode };
       },
       async () => {

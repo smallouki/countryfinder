@@ -33,7 +33,9 @@ You can point the extension at a **small HTTP(S) service** you control (for exam
 
 **Permissions:** Saving a non-empty URL triggers a **host permission** prompt for that origin (via `optional_host_permissions` patterns `http://*/*` and `https://*/*`). Clearing the field removes the stored URL and backoff state (it does not revoke already granted origins).
 
-**Troubleshooting:** If the Network tab of the **service worker** still shows only public geo hosts (e.g. reallyfreegeoip) after saving your base URL: (1) confirm the host permission was **allowed** when saving; (2) if homelab failed once, wait **~5 minutes** or clear the URL and save again to reset backoff; (3) reload the extension or revisit the page — the in-memory cache is keyed by your saved base URL and cleared when options change, so you should see `GET` to your host for **public** (non-RFC1918) resolved IPs. **Firefox / LibreWolf:** internal names (e.g. `geoip.tma`) are resolved with `browser.dns.resolve`, then the homelab request prefers **`http://<resolved-IP>/…`** (because `fetch` to the hostname can still DNS-fail). That needs permission for the IP origin — the Firefox manifest includes a **wildcard `http` host permission** for this. If your server **requires** the `Host: geoip.tma` header, use the **literal IP** as the saved base URL or adjust the server; `fetch` cannot set `Host` manually.
+**Storage:** If you use **“Delete extension storage”** (or similar) in `about:debugging`, that wipes **`customGeoBaseUrl`** too — the extension will **not** call your homelab until you open **options** again and **save** `http://geoip.tma` (and accept the host permission prompt if shown).
+
+**Troubleshooting:** If the Network tab of the **service worker** still shows only public geo hosts (e.g. reallyfreegeoip) after saving your base URL: (1) confirm the host permission was **allowed** when saving; (2) if homelab failed once, wait **~5 minutes** or clear the URL and save again to reset backoff; (3) reload the extension or revisit the page — the in-memory cache is keyed by your saved base URL and cleared when options change, so you should see `GET` to your host for **public** (non-RFC1918) resolved IPs. **Firefox / LibreWolf:** homelab uses your saved **hostname URL first** (so ingress / virtual hosts see the correct `Host` / SNI). Only if that `fetch` fails does the add-on fall back to **`http://<resolved-IP>/…`** for **http:** bases (needs the manifest’s **`http://*/*`** permission). That IP fallback can break clusters that route only by hostname; fix split-horizon DNS so the hostname `fetch` succeeds, or avoid **http** IP fallback by ensuring `http://geoip.tma/…` resolves in the extension context.
 
 **Self-hosted data licensing:** If your backend uses **MaxMind GeoLite2** or similar databases, you are responsible for **license compliance** (for example GeoLite2 **CC BY-SA 4.0** attribution and redistribution rules). This repository does not ship MMDB files.
 
@@ -115,7 +117,7 @@ If you configure a **custom geo base URL** in options, the **resolved public IP*
 
 **Firefox:** No DoH hosts in the manifest for DNS; hostname resolution uses the **`dns`** permission and **`browser.dns.resolve`** instead.
 
-**All — Geolocation (examples):** reallyfreegeoip.org, ipinfo.io, ipwho.is, ipapi.co, geojs.io, ip-api.com (HTTP fallback).
+**All — Geolocation (fallback order):** ipwho.is, ipinfo.io, ipapi.co, geojs.io, reallyfreegeoip.org, ip-api.com (HTTP). `NS_ERROR_CONNECTION_REFUSED` (or similar) on the first host usually means a **firewall, DNS filter, or Pi-hole** is blocking that domain — a later provider in the chain may still succeed.
 
 **All — Flags:** flagcdn.com.
 
