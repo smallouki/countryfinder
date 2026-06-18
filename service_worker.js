@@ -78,6 +78,7 @@ async function applyHomelabBackoffFromResult(result) {
 async function resolveServerMeta(hostname, protocol) {
   return runResolveExclusive(async () => {
     const hostRaw = (hostname || "").trim();
+    const host = hostRaw.toLowerCase();
     const homelabOpts = await loadHomelabOpts();
     // Include custom geo base in the key so changing options does not reuse a stale
     // 15-minute entry that was resolved only via public APIs before homelab was configured.
